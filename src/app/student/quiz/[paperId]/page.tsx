@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Flag, Loader2, Trophy, Target, XCircle, Info } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Trophy, Target, XCircle, Info, Loader2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 
@@ -28,7 +28,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   const [loading, setLoading] = useState(true);
   const [submitted, setSubmitted] = useState(false);
   
-  // Detailed Results State
   const [results, setResults] = useState({
     correct: 0,
     attempted: 0,
@@ -54,25 +53,21 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
-        // Fetch user progress (all unique completed indices)
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const completedIndices = new Set<number>();
         progressSnap.forEach(doc => {
           const data = doc.data();
-          if (data.completedIndices) {
-            data.completedIndices.forEach((idx: number) => completedIndices.add(idx));
+          if (data.answeredIndices) {
+            data.answeredIndices.forEach((idx: number) => completedIndices.add(idx));
           }
         });
 
-        // Fetch Questions
         const res = await fetch(paperData.url);
         if (!res.ok) throw new Error("Failed to fetch questions");
         const allQuestionsRaw = await res.json();
 
-        // Normalize questions
         const allQuestions = allQuestionsRaw.map((q: any, originalIndex: number) => {
           const isBilingual = q.question_en && q.options;
-          
           return {
             originalIndex,
             question: isBilingual ? q.question_en : (q.question || q.question_hi || "Question text missing"),
@@ -84,15 +79,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           };
         });
 
-        // Filter out already completed questions
         let remainingQuestions = allQuestions.filter((q: any) => !completedIndices.has(q.originalIndex));
 
-        // If paper is fully completed, reset it for a fresh take
         if (remainingQuestions.length === 0) {
           remainingQuestions = allQuestions;
         }
 
-        // Limit to 100 for performance, but usually it will be whatever is left
         setQuestions(remainingQuestions.slice(0, 100));
         setLoading(false);
       } catch (err: any) {
@@ -120,10 +112,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   const handleSubmit = async () => {
     let correct = 0;
     let attempted = 0;
+    const answeredIndices: number[] = [];
     
     questions.forEach((q, idx) => {
       if (answers[idx]) {
         attempted++;
+        answeredIndices.push(q.originalIndex);
         if (answers[idx] === q.correctAnswer) {
           correct++;
         }
@@ -146,18 +140,15 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     if (!userData?.regId) return;
 
     try {
-      // Save only the questions that were part of this specific session
-      const completedIndices = questions.map(q => q.originalIndex);
-      
       await addDoc(collection(db, "student", userData.regId, "progress", paperId, "history"), {
         score: correct,
-        total: questions.length,
+        totalInSession: questions.length,
         attempted: attempted,
-        completedIndices: completedIndices,
+        answeredIndices: answeredIndices,
         timestamp: Date.now()
       });
       
-      toast({ title: "Result Saved", description: `You answered ${correct} correctly.` });
+      toast({ title: "Progress Saved", description: `You answered ${attempted} questions in this session.` });
     } catch (err) {
       console.error("Failed to save progress", err);
     }
@@ -193,7 +184,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
               <Target className="h-5 w-5 mx-auto mb-2 text-blue-500" />
-              <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-tighter">Total Questions</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-tighter">Total in Session</p>
               <p className="text-2xl font-black">{results.total}</p>
             </div>
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
@@ -215,12 +206,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
           <div className="space-y-4">
             <div className="flex justify-between items-end">
-              <p className="text-sm font-bold text-muted-foreground">Overall Performance</p>
+              <p className="text-sm font-bold text-muted-foreground">Accuracy Score</p>
               <p className="text-3xl font-black text-primary">{results.percentage}%</p>
             </div>
             <Progress value={results.percentage} className="h-4 rounded-full" />
-            <p className="text-xs text-center text-muted-foreground italic">
-              {results.percentage >= 60 ? "Excellent work! You have shown great command over the subject." : "Keep practicing! Every attempt is a step closer to mastery."}
+            <p className="text-xs text-center text-muted-foreground italic mt-4">
+              Your results have been saved. You can continue with the remaining questions or retake the paper anytime.
             </p>
           </div>
         </CardContent>
@@ -229,11 +220,10 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             Back to Dashboard
           </Button>
           <Button variant="outline" className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
-            Retake Remaining
+            Continue Remaining
           </Button>
         </CardFooter>
       </Card>
-      <p className="mt-8 text-xs text-muted-foreground">Detailed history is available in your student profile records.</p>
     </div>
   );
 

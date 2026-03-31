@@ -29,25 +29,26 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!user || !userData || userData.role !== "student") return;
 
-    // Fetch Papers
+    // Fetch Papers and unique progress indices
     const unsub = onSnapshot(collection(db, "papers"), async (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPapers(list);
 
-      // Fetch Progress for each paper from the /student/{regId}/progress/{paperId}/history
       const prog: Record<string, any> = {};
       for (const p of list) {
         try {
+          // Look into history to find all unique answered indices
           const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", p.id, "history"));
-          const completedIndices = new Set();
+          const answeredIndices = new Set<number>();
           progressSnap.forEach(doc => {
             const data = doc.data();
-            if (data.completedIndices) {
-              data.completedIndices.forEach((idx: number) => completedIndices.add(idx));
+            if (data.answeredIndices) {
+              data.answeredIndices.forEach((idx: number) => answeredIndices.add(idx));
             }
           });
+          
           prog[p.id] = {
-            completedCount: completedIndices.size,
+            completedCount: answeredIndices.size,
             total: p.count || 0
           };
         } catch (e) {
@@ -100,7 +101,6 @@ export default function StudentDashboard() {
       </header>
 
       <main className="container mx-auto px-4 py-8 space-y-8">
-        {/* Welcome & Overall Stats */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card className="md:col-span-2 bg-gradient-to-r from-primary to-primary/80 text-white border-none shadow-lg">
             <CardHeader>
@@ -120,23 +120,22 @@ export default function StudentDashboard() {
           <Card className="border-t-4 border-t-secondary">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-secondary" /> Your Progress
+                <CheckCircle2 className="h-5 w-5 text-secondary" /> Overall Mastery
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="text-center py-4">
                 <span className="text-4xl font-bold text-primary">{totalQuestionsDone}</span>
-                <p className="text-sm text-muted-foreground">Total Questions Completed</p>
+                <p className="text-sm text-muted-foreground">Unique Questions Completed</p>
               </div>
               <div className="flex items-center gap-2 text-xs bg-muted p-2 rounded">
                 <Clock className="h-3 w-3" />
-                <span>Session auto-ends after 60 mins of inactivity.</span>
+                <span>Keep practicing to improve your score.</span>
               </div>
             </CardContent>
           </Card>
         </section>
 
-        {/* Papers List */}
         <section>
           <div className="flex items-center gap-2 mb-6">
             <BookOpen className="h-6 w-6 text-primary" />
@@ -149,7 +148,7 @@ export default function StudentDashboard() {
             </div>
           ) : papers.length === 0 ? (
             <div className="text-center py-20 bg-white rounded-xl border border-dashed">
-              <p className="text-muted-foreground italic">No question papers assigned yet. Please contact the administrator.</p>
+              <p className="text-muted-foreground italic">No question papers assigned yet.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -164,15 +163,10 @@ export default function StudentDashboard() {
                         <CardTitle className="text-lg font-bold group-hover:text-primary transition-colors">{paper.name}</CardTitle>
                         <Badge variant="outline">{paper.count} Qs</Badge>
                       </div>
-                      <CardDescription className="flex flex-wrap gap-1 pt-1">
-                        {paper.topics?.slice(0, 3).map((t: string) => (
-                          <span key={t} className="text-[10px] bg-muted px-1.5 py-0.5 rounded">{t}</span>
-                        ))}
-                      </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <div className="flex justify-between text-xs mb-1">
-                        <span>Progress</span>
+                        <span>Total Progress</span>
                         <span className="font-semibold">{prog.completedCount} / {prog.total}</span>
                       </div>
                       <Progress value={pct} className="h-2" />
@@ -181,7 +175,7 @@ export default function StudentDashboard() {
                       <Link href={`/student/quiz/${paper.id}`} className="w-full">
                         <Button className="w-full group-hover:bg-primary transition-colors flex items-center gap-2">
                           <PlayCircle className="h-4 w-4" /> 
-                          {prog.completedCount >= prog.total && prog.total > 0 ? "Retake Paper" : "Start Quiz"}
+                          {prog.completedCount >= prog.total && prog.total > 0 ? "Retake Whole Paper" : "Continue / Start Quiz"}
                         </Button>
                       </Link>
                     </CardFooter>
