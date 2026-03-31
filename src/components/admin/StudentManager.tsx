@@ -3,13 +3,16 @@
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
+import { firebaseConfig } from "@/firebase/config";
+import { initializeApp, deleteApp } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { collection, setDoc, deleteDoc, doc, onSnapshot } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,7 +33,6 @@ export default function StudentManager() {
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    // Listen to 'student' (singular) collection
     const unsub = onSnapshot(collection(db, "student"), (snapshot) => {
       const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setStudents(list);
@@ -44,32 +46,58 @@ export default function StudentManager() {
     setAdding(true);
 
     const cleanRegId = regId.trim().toUpperCase();
+    const studentEmail = `${cleanRegId.toLowerCase()}@csa.com`;
+
     if (!cleanRegId) {
       toast({ variant: "destructive", title: "Error", description: "Registration ID is required." });
       setAdding(false);
       return;
     }
 
+    // We use a secondary Firebase App to create the user in Auth without signing out the current admin
+    const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+    const secondaryAuth = getAuth(secondaryApp);
+
     try {
+      // 1. Create User in Firebase Auth
+      await createUserWithEmailAndPassword(secondaryAuth, studentEmail, password);
+      
+      // 2. Immediately sign out the secondary instance
+      await signOut(secondaryAuth);
+      await deleteApp(secondaryApp);
+
+      // 3. Save to 'student' collection in Firestore
       const studentDoc = {
         id: cleanRegId,
         name,
         course,
         regId: cleanRegId,
-        password, // Insecure but prototype requirement
         notice,
         createdAt: Date.now(),
-        email: `${cleanRegId.toLowerCase()}@quizmaster.com`,
+        email: studentEmail,
       };
 
-      // Save to 'student' collection using cleanRegId as document ID
       await setDoc(doc(db, "student", cleanRegId), studentDoc);
 
-      toast({ title: "Student Added", description: `Student ${cleanRegId} created successfully.` });
+      toast({ 
+        title: "Student Created", 
+        description: `Account ${cleanRegId} with email ${studentEmail} is ready.` 
+      });
+      
       setIsAddOpen(false);
       resetForm();
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Error", description: err.message });
+      console.error(err);
+      toast({ 
+        variant: "destructive", 
+        title: "Automation Failed", 
+        description: err.code === 'auth/email-already-in-use' 
+          ? "This Student ID is already registered in Auth." 
+          : err.message 
+      });
+      
+      // Cleanup secondary app if it exists
+      try { await deleteApp(secondaryApp); } catch (e) {}
     } finally {
       setAdding(false);
     }
@@ -80,10 +108,10 @@ export default function StudentManager() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Are you sure you want to delete student ${name}?`)) {
+    if (confirm(`Are you sure you want to delete student ${name}? Note: This only removes their profile, not their Auth account.`)) {
       try {
         await deleteDoc(doc(db, "student", id));
-        toast({ title: "Deleted", description: "Student account removed." });
+        toast({ title: "Profile Deleted", description: "Student database record removed." });
       } catch (err: any) {
         toast({ variant: "destructive", title: "Error", description: err.message });
       }
@@ -116,7 +144,9 @@ export default function StudentManager() {
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>Create Student Account</DialogTitle>
-              <DialogDescription>Enter student details. Use Reg ID for login.</DialogDescription>
+              <DialogDescription>
+                This will automatically create a login at <strong>[ID]@csa.com</strong>.
+              </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleAddStudent} className="space-y-4" autoComplete="off">
               <div className="grid grid-cols-2 gap-4">
@@ -130,20 +160,25 @@ export default function StudentManager() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="regId">Registration ID</Label>
+                <Label htmlFor="regId">Registration ID (Login Username)</Label>
                 <Input id="regId" placeholder="e.g. ST101" value={regId} onChange={(e) => setRegId(e.target.value)} required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="new-password">Password</Label>
+                <Label htmlFor="new-password">Login Password</Label>
                 <Input id="new-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="notice">Notice/Notes</Label>
-                <Textarea id="notice" placeholder="Add specific notes for this student..." value={notice} onChange={(e) => setNotice(e.target.value)} />
+                <Label htmlFor="notice">Administrative Notice</Label>
+                <Textarea id="notice" placeholder="Add notes for this student..." value={notice} onChange={(e) => setNotice(e.target.value)} />
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={adding} className="w-full">
-                  {adding ? "Creating..." : "Save Account"}
+                  {adding ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating Auth & Profile...
+                    </>
+                  ) : "Save Account"}
                 </Button>
               </DialogFooter>
             </form>
@@ -153,8 +188,8 @@ export default function StudentManager() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Student Directory</CardTitle>
-          <CardDescription>Manage all registered students and their access status.</CardDescription>
+          <CardTitle className="text-lg text-primary font-bold">Student Directory</CardTitle>
+          <CardDescription>Accounts ending in @csa.com are generated automatically.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-hidden">
@@ -164,14 +199,14 @@ export default function StudentManager() {
                   <TableHead>Student Name</TableHead>
                   <TableHead>Course</TableHead>
                   <TableHead>Reg ID</TableHead>
-                  <TableHead>Notice</TableHead>
+                  <TableHead>Login Email</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-10">Loading students...</TableCell>
+                    <TableCell colSpan={5} className="text-center py-10">Syncing student database...</TableCell>
                   </TableRow>
                 ) : filteredStudents.length === 0 ? (
                   <TableRow>
@@ -183,7 +218,7 @@ export default function StudentManager() {
                       <TableCell className="font-medium">{student.name}</TableCell>
                       <TableCell>{student.course}</TableCell>
                       <TableCell className="font-mono text-xs">{student.regId}</TableCell>
-                      <TableCell className="max-w-[150px] truncate italic text-muted-foreground">{student.notice || "None"}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{student.email}</TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDelete(student.id, student.name)}>
                           <Trash2 className="h-4 w-4" />
