@@ -2,15 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, deleteDoc, doc, query, where, onSnapshot } from "firebase/firestore";
-import { createUserWithEmailAndPassword, getAuth } from "firebase/auth";
-import { auth as adminAuth } from "@/lib/firebase";
+import { collection, addDoc, deleteDoc, doc, onSnapshot } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, GraduationCap } from "lucide-react";
+import { UserPlus, Trash2, Search } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,14 +23,14 @@ export default function StudentManager() {
   // New Student Form
   const [name, setName] = useState("");
   const [course, setCourse] = useState("");
-  const [regId, setRegId] = useState(""); // Also used as email (regId@quizmaster.com)
+  const [regId, setRegId] = useState(""); 
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, "users"), where("role", "==", "student"));
-    const unsub = onSnapshot(q, (snapshot) => {
+    // Correct collection name to 'students' as per firestore.rules
+    const unsub = onSnapshot(collection(db, "students"), (snapshot) => {
       const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setStudents(list);
       setLoading(false);
@@ -45,35 +43,18 @@ export default function StudentManager() {
     setAdding(true);
 
     try {
-      // In a real app, we might use a Firebase Admin SDK via Server Action 
-      // to create users without logging out the current admin.
-      // For this prototype, we'll use a placeholder email pattern based on regId.
-      const email = `${regId}@quizmaster.com`;
-      
-      // Since we are in the client, we can't easily create another user 
-      // without affecting the current admin session without using an API.
-      // WE WILL USE A FIRESTORE-ONLY MOCK FOR NOW if necessary, or just rely on manual setup.
-      // However, the prompt asks for functional creation.
-      // We will assume the backend handles this or use a temporary auth instance.
-      
-      // Let's create a record in 'pending_creations' and assume a Cloud Function or Admin script 
-      // picks it up, but for the UI, we'll just write to 'users' collection directly.
-      // NOTE: Normally Auth and Firestore need to stay in sync.
-      
       const studentDoc = {
         name,
         course,
         regId,
-        password, // For admin visibility/reference
+        password, 
         notice,
-        role: "student",
         createdAt: Date.now(),
-        email,
+        email: `${regId}@quizmaster.com`,
       };
 
-      // Since we can't easily create Firebase Auth users from the frontend without logging out,
-      // we'll just store the record. A real implementation would use a Server Action.
-      await addDoc(collection(db, "users"), studentDoc);
+      // Correct collection name to 'students'
+      await addDoc(collection(db, "students"), studentDoc);
 
       toast({ title: "Student Added", description: `Registration ID ${regId} created successfully.` });
       setIsAddOpen(false);
@@ -92,7 +73,7 @@ export default function StudentManager() {
   const handleDelete = async (id: string, name: string) => {
     if (confirm(`Are you sure you want to delete student ${name}?`)) {
       try {
-        await deleteDoc(doc(db, "users", id));
+        await deleteDoc(doc(db, "students", id));
         toast({ title: "Deleted", description: "Student account removed." });
       } catch (err: any) {
         toast({ variant: "destructive", title: "Error", description: err.message });

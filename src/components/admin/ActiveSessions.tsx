@@ -16,7 +16,8 @@ export default function ActiveSessions() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "sessions"), (snapshot) => {
+    // Correct collection name as per backend.json and firestore.rules
+    const unsub = onSnapshot(collection(db, "userSessions"), (snapshot) => {
       const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setSessions(list);
       setLoading(false);
@@ -27,7 +28,7 @@ export default function ActiveSessions() {
   const terminateSession = async (id: string, name: string) => {
     if (confirm(`Force logout ${name}?`)) {
       try {
-        await deleteDoc(doc(db, "sessions", id));
+        await deleteDoc(doc(db, "userSessions", id));
         toast({ title: "Session Terminated", description: `User ${name} has been logged out.` });
       } catch (err: any) {
         toast({ variant: "destructive", title: "Error", description: err.message });
@@ -79,7 +80,7 @@ export default function ActiveSessions() {
                     <TableCell>
                       <div className="flex items-center gap-2 text-xs max-w-xs">
                         <Monitor className="h-3 w-3 shrink-0" />
-                        <span className="truncate" title={session.userAgent}>{session.userAgent}</span>
+                        <span className="truncate" title={session.deviceInfo}>{session.deviceInfo}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -88,7 +89,7 @@ export default function ActiveSessions() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs">
-                      {new Date(session.lastActive).toLocaleTimeString()}
+                      {session.lastActivityTime ? new Date(session.lastActivityTime).toLocaleTimeString() : 'N/A'}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button 
