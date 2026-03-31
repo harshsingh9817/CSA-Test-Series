@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
@@ -30,56 +29,47 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Check Admin collection first
-        let userDoc = await getDoc(doc(db, "admins", firebaseUser.uid));
-        let role = "admin";
+        setUser(firebaseUser);
+        
+        // Try to fetch profile
+        try {
+          // Check Admin collection first
+          let userDoc = await getDoc(doc(db, "admins", firebaseUser.uid));
+          let role = "admin";
 
-        if (!userDoc.exists()) {
-          // Then check Student collection
-          userDoc = await getDoc(doc(db, "students", firebaseUser.uid));
-          role = "student";
-        }
+          if (!userDoc.exists()) {
+            // Then check Student collection
+            userDoc = await getDoc(doc(db, "students", firebaseUser.uid));
+            role = "student";
+          }
 
-        if (userDoc.exists()) {
-          const data = { ...userDoc.data(), role, id: firebaseUser.uid };
-          setUserData(data);
-          setUser(firebaseUser);
+          if (userDoc.exists()) {
+            const data = { ...userDoc.data(), role, id: firebaseUser.uid };
+            setUserData(data);
 
-          // Session Tracking
-          const sessionRef = doc(db, "userSessions", firebaseUser.uid);
-          const deviceId = localStorage.getItem("quizmaster_device_id") || Math.random().toString(36).substring(7);
-          localStorage.setItem("quizmaster_device_id", deviceId);
-
-          await setDoc(sessionRef, {
-            id: firebaseUser.uid,
-            userId: firebaseUser.uid,
-            userType: role,
-            loginTime: new Date().toISOString(),
-            lastActivityTime: new Date().toISOString(),
-            deviceInfo: navigator.userAgent,
-            isActive: true,
-            name: data.name || firebaseUser.email,
-            email: firebaseUser.email,
-            role: role,
-            deviceId: deviceId,
-            userAgent: navigator.userAgent,
-            lastActive: Date.now(),
-          }, { merge: true });
-
-          // Listener for session invalidation (e.g. forced logout by admin)
-          const sessionUnsub = onSnapshot(sessionRef, (docSnap) => {
-            if (docSnap.exists() && !docSnap.data().isActive) {
-              logout();
-            }
-          });
-
-          setLoading(false);
-          return () => sessionUnsub();
-        } else {
-          // If no profile exists, sign out
-          await signOut(auth);
-          setUser(null);
-          setUserData(null);
+            // Session Tracking
+            const sessionRef = doc(db, "userSessions", firebaseUser.uid);
+            await setDoc(sessionRef, {
+              id: firebaseUser.uid,
+              userId: firebaseUser.uid,
+              userType: role,
+              loginTime: new Date().toISOString(),
+              lastActivityTime: new Date().toISOString(),
+              deviceInfo: navigator.userAgent,
+              isActive: true,
+              name: data.name || firebaseUser.email,
+              email: firebaseUser.email,
+              role: role,
+              lastActive: Date.now(),
+            }, { merge: true });
+          } else {
+            // Profile doesn't exist yet, but don't force sign out here
+            // Let the LoginPage handle bootstrapping
+            setUserData(null);
+          }
+        } catch (error) {
+          console.error("Auth context error:", error);
+        } finally {
           setLoading(false);
         }
       } else {
@@ -90,49 +80,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, [router]);
-
-  // Inactivity tracking
-  useEffect(() => {
-    if (!user) return;
-
-    const updateActivity = async () => {
-      try {
-        const sessionRef = doc(db, "userSessions", user.uid);
-        await updateDoc(sessionRef, { 
-          lastActivityTime: new Date().toISOString(),
-          lastActive: Date.now() 
-        });
-      } catch (e) {
-        // Ignore minor update failures
-      }
-    };
-
-    const handleInteraction = () => updateActivity();
-
-    window.addEventListener("mousemove", handleInteraction);
-    window.addEventListener("keydown", handleInteraction);
-    window.addEventListener("click", handleInteraction);
-
-    const interval = setInterval(async () => {
-      const sessionRef = doc(db, "userSessions", user.uid);
-      const snap = await getDoc(sessionRef);
-      if (snap.exists()) {
-        const lastActive = snap.data().lastActive || Date.now();
-        const oneHour = 60 * 60 * 1000;
-        if (Date.now() - lastActive > oneHour) {
-          logout();
-        }
-      }
-    }, 120000); // Check every 2 mins
-
-    return () => {
-      window.removeEventListener("mousemove", handleInteraction);
-      window.removeEventListener("keydown", handleInteraction);
-      window.removeEventListener("click", handleInteraction);
-      clearInterval(interval);
-    };
-  }, [user]);
+  }, []);
 
   const logout = async () => {
     if (user) {

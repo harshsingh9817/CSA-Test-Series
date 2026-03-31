@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState } from "react";
@@ -30,7 +29,6 @@ export default function LoginPage() {
 
     try {
       let loginEmail = identifier.trim();
-      // If the identifier doesn't contain an '@', treat it as a Student Registration ID
       if (!loginEmail.includes("@")) {
         loginEmail = `${loginEmail}@quizmaster.com`;
       }
@@ -39,56 +37,50 @@ export default function LoginPage() {
       const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
       const user = userCredential.user;
 
-      // 2. Determine Role and Redirect
-      // Check Admin collection
+      // 2. Check Admin Profile
       const adminDoc = await getDoc(doc(db, "admins", user.uid));
       if (adminDoc.exists()) {
         router.push("/admin");
         return;
       }
 
-      // Check Student collection
-      const studentDoc = await getDoc(doc(db, "students", user.uid));
-      if (studentDoc.exists()) {
-        router.push("/student");
-        return;
-      }
-
-      // 3. Bootstrap Primary Admin
-      // If this is the primary admin email but they don't have a Firestore record yet, create it.
+      // 3. Bootstrap Primary Admin if needed
       const primaryAdminEmail = "sunilsingh8896@gmail.com";
       if (loginEmail.toLowerCase() === primaryAdminEmail.toLowerCase()) {
         await setDoc(doc(db, "admins", user.uid), {
           id: user.uid,
           email: loginEmail,
           name: "Sunil Singh",
-          role: "admin"
+          role: "admin",
+          createdAt: Date.now()
         });
         router.push("/admin");
         return;
       }
 
-      // 4. Handle account with no profile
+      // 4. Check Student Profile
+      const studentDoc = await getDoc(doc(db, "students", user.uid));
+      if (studentDoc.exists()) {
+        router.push("/student");
+        return;
+      }
+
+      // 5. Handle account with no profile
       toast({
         variant: "destructive",
         title: "Profile Missing",
-        description: "Your login is valid, but no Admin or Student profile was found. Please contact the system owner.",
+        description: "Credentials are valid, but no profile was found.",
       });
     } catch (err: any) {
-      let message = "Invalid email/ID or password. Please try again.";
-      
-      // Provide more specific feedback for common auth errors
+      console.error(err);
+      let message = "Invalid credentials. Please try again.";
       if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-        message = "No account found with these credentials.";
-      } else if (err.code === 'auth/wrong-password') {
-        message = "The password you entered is incorrect.";
-      } else if (err.code === 'auth/too-many-requests') {
-        message = "Too many failed attempts. Please try again later.";
+        message = "No account found or invalid password.";
       }
       
       toast({
         variant: "destructive",
-        title: "Authentication Failed",
+        title: "Login Failed",
         description: message,
       });
     } finally {
@@ -113,7 +105,7 @@ export default function LoginPage() {
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Session Conflict</AlertTitle>
-              <AlertDescription>You were automatically logged out because a new session was started on another device.</AlertDescription>
+              <AlertDescription>Your session was terminated on another device.</AlertDescription>
             </Alert>
           )}
           
@@ -127,7 +119,7 @@ export default function LoginPage() {
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 required
-                className="h-11"
+                disabled={loading}
               />
             </div>
             <div className="space-y-2">
@@ -139,11 +131,11 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                className="h-11"
+                disabled={loading}
               />
             </div>
-            <Button type="submit" className="w-full h-11 text-lg font-semibold" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Checking credentials..." : "Sign In"}
             </Button>
           </form>
         </CardContent>
@@ -152,7 +144,6 @@ export default function LoginPage() {
             <ShieldCheck className="h-4 w-4" />
             <span>Administrator-managed access only</span>
           </div>
-          <p className="mt-1">For account issues, please contact your education coordinator.</p>
         </CardFooter>
       </Card>
     </div>
