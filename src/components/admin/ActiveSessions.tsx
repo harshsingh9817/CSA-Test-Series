@@ -1,0 +1,112 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { db } from "@/lib/firebase";
+import { collection, onSnapshot, deleteDoc, doc } from "firebase/firestore";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ShieldAlert, Monitor, UserX } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Badge } from "@/components/ui/badge";
+
+export default function ActiveSessions() {
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "sessions"), (snapshot) => {
+      const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setSessions(list);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const terminateSession = async (id: string, name: string) => {
+    if (confirm(`Force logout ${name}?`)) {
+      try {
+        await deleteDoc(doc(db, "sessions", id));
+        toast({ title: "Session Terminated", description: `User ${name} has been logged out.` });
+      } catch (err: any) {
+        toast({ variant: "destructive", title: "Error", description: err.message });
+      }
+    }
+  };
+
+  return (
+    <Card className="border-t-4 border-t-secondary">
+      <CardHeader>
+        <div className="flex items-center gap-2 mb-1">
+          <ShieldAlert className="h-5 w-5 text-secondary" />
+          <CardTitle>Active User Sessions</CardTitle>
+        </div>
+        <CardDescription>Monitor and manage real-time platform access. Enforcement: 1 session/account.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader className="bg-muted/30">
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Device / PC Info</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Last Activity</TableHead>
+                <TableHead className="text-right">Access Control</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8">Tracking active users...</TableCell>
+                </TableRow>
+              ) : sessions.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                    No active sessions currently.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                sessions.map((session) => (
+                  <TableRow key={session.id}>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-semibold">{session.name}</span>
+                        <span className="text-xs text-muted-foreground">{session.email}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2 text-xs max-w-xs">
+                        <Monitor className="h-3 w-3 shrink-0" />
+                        <span className="truncate" title={session.userAgent}>{session.userAgent}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={session.role === "admin" ? "default" : "secondary"} className="capitalize">
+                        {session.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {new Date(session.lastActive).toLocaleTimeString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="text-destructive hover:bg-destructive hover:text-white border-destructive/20"
+                        onClick={() => terminateSession(session.id, session.name)}
+                      >
+                        <UserX className="h-4 w-4 mr-2" /> Terminate
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
