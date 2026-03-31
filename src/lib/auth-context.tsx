@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "./firebase";
 import { doc, getDoc, setDoc, onSnapshot, updateDoc, deleteDoc } from "firebase/firestore";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 interface AuthContextType {
   user: User | null;
@@ -25,56 +25,69 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [userData, setUserData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, "users", firebaseUser.uid));
+        // Check Admin collection first
+        let userDoc = await getDoc(doc(db, "admins", firebaseUser.uid));
+        let role = "admin";
+
+        if (!userDoc.exists()) {
+          // Then check Student collection
+          userDoc = await getDoc(doc(db, "students", firebaseUser.uid));
+          role = "student";
+        }
+
         if (userDoc.exists()) {
-          const data = userDoc.data();
+          const data = { ...userDoc.data(), role, id: firebaseUser.uid };
           setUserData(data);
           setUser(firebaseUser);
 
           // Unique Session Check
-          const sessionRef = doc(db, "sessions", firebaseUser.uid);
-          const currentSession = await getDoc(sessionRef);
+          const sessionRef = doc(db, "userSessions", firebaseUser.uid);
           const deviceId = localStorage.getItem("quizmaster_device_id") || Math.random().toString(36).substring(7);
           localStorage.setItem("quizmaster_device_id", deviceId);
 
-          if (currentSession.exists() && currentSession.data().deviceId !== deviceId) {
-            // Already logged in elsewhere
-            await signOut(auth);
-            setUser(null);
-            setUserData(null);
-            router.push("/login?error=multiple_sessions");
-          } else {
-            // Update or Create Session
-            await setDoc(sessionRef, {
-              uid: firebaseUser.uid,
-              name: data.name || data.email,
-              email: firebaseUser.email,
-              role: data.role,
-              deviceId: deviceId,
-              userAgent: navigator.userAgent,
-              lastActive: Date.now(),
-            });
+          // Update or Create Session
+          await setDoc(sessionRef, {
+            id: firebaseUser.uid,
+            userId: firebaseUser.uid,
+            userType: role,
+            loginTime: new Date().toISOString(),
+            lastActivityTime: new Date().toISOString(),
+            deviceInfo: navigator.userAgent,
+            isActive: true,
+            // Keeping fields used by UI
+            name: data.name || firebaseUser.email,
+            email: firebaseUser.email,
+            role: role,
+            deviceId: deviceId,
+            userAgent: navigator.userAgent,
+            lastActive: Date.now(),
+          }, { merge: true });
 
-            // Listen for session termination
-            const sessionUnsub = onSnapshot(sessionRef, (docSnap) => {
-              if (!docSnap.exists()) {
-                logout();
-              }
-            });
+          // Listen for session termination
+          const sessionUnsub = onSnapshot(sessionRef, (docSnap) => {
+            if (docSnap.exists() && !docSnap.data().isActive) {
+              logout();
+            }
+          });
 
-            return () => sessionUnsub();
-          }
+          setLoading(false);
+          return () => sessionUnsub();
+        } else {
+          // If authenticated but no Firestore record, logout
+          await signOut(auth);
+          setUser(null);
+          setUserData(null);
+          setLoading(false);
         }
       } else {
         setUser(null);
         setUserData(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -85,8 +98,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (!user) return;
 
     const updateActivity = async () => {
-      const sessionRef = doc(db, "sessions", user.uid);
-      await updateDoc(sessionRef, { lastActive: Date.now() });
+      const sessionRef = doc(db, "userSessions", user.uid);
+      await updateDoc(sessionRef, { 
+        lastActivityTime: new Date().toISOString(),
+        lastActive: Date.now() 
+      });
     };
 
     const handleInteraction = () => {
@@ -98,7 +114,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     window.addEventListener("click", handleInteraction);
 
     const interval = setInterval(async () => {
-      const sessionRef = doc(db, "sessions", user.uid);
+      const sessionRef = doc(db, "userSessions", user.uid);
       const snap = await getDoc(sessionRef);
       if (snap.exists()) {
         const lastActive = snap.data().lastActive;
@@ -119,7 +135,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const logout = async () => {
     if (user) {
-      await deleteDoc(doc(db, "sessions", user.uid));
+      const sessionRef = doc(db, "userSessions", user.uid);
+      await updateDoc(sessionRef, { isActive: false });
     }
     await signOut(auth);
     setUser(null);

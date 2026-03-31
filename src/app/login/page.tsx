@@ -27,41 +27,37 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Custom Admin Handling
-      const adminEmail = "sunilsingh8896@gmail.com";
-      const adminPass = "sunil8896";
-
-      let userCredential;
-      if (email === adminEmail && password === adminPass) {
-        // Special case for admin login if not in Firebase Auth yet, 
-        // normally we should pre-create this user. 
-        // For MVP, we'll try standard auth first.
-      }
-
-      userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // Standard Firebase Auth
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      const userDoc = await getDoc(doc(db, "users", user.uid));
-      if (!userDoc.exists()) {
-        // Fallback for initial admin creation if needed
-        if (email === adminEmail) {
-          await setDoc(doc(db, "users", user.uid), {
-            email: email,
-            role: "admin",
-            name: "Sunil Singh",
-          });
-          router.push("/admin");
-          return;
-        }
-        throw new Error("User record not found in system.");
+      // Check Admins collection
+      let userDoc = await getDoc(doc(db, "admins", user.uid));
+      if (userDoc.exists()) {
+        router.push("/admin");
+        return;
       }
 
-      const role = userDoc.data().role;
-      if (role === "admin") {
-        router.push("/admin");
-      } else {
+      // Check Students collection
+      userDoc = await getDoc(doc(db, "students", user.uid));
+      if (userDoc.exists()) {
         router.push("/student");
+        return;
       }
+
+      // Fallback for initial admin creation if email matches predefined admin
+      const adminEmail = "sunilsingh8896@gmail.com";
+      if (email === adminEmail) {
+        await setDoc(doc(db, "admins", user.uid), {
+          id: user.uid,
+          email: email,
+          name: "Sunil Singh",
+        });
+        router.push("/admin");
+        return;
+      }
+
+      throw new Error("No profile found for this user. Please contact administrator.");
     } catch (err: any) {
       toast({
         variant: "destructive",
@@ -95,16 +91,15 @@ export default function LoginPage() {
           )}
           <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
             <div className="space-y-2">
-              <Label htmlFor="email">Email or Registration ID</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
-                type="text"
+                type="email"
                 placeholder="email@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                autoComplete="off"
-                data-lpignore="true"
+                autoComplete="email"
               />
             </div>
             <div className="space-y-2">
@@ -116,8 +111,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                autoComplete="new-password"
-                data-lpignore="true"
+                autoComplete="current-password"
               />
             </div>
             <Button type="submit" className="w-full h-11 text-lg font-semibold" disabled={loading}>
