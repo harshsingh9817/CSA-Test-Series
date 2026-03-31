@@ -56,6 +56,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
+        // Get unique completed indices across all history
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const completedIndices = new Set<number>();
         progressSnap.forEach(doc => {
@@ -82,9 +83,10 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           };
         });
 
+        // Filter out completed questions
         let remainingQuestions = allQuestions.filter((q: any) => !completedIndices.has(q.originalIndex));
 
-        // If paper is fully complete, offer to retake all
+        // If all questions in paper are done, allow retaking all of them
         if (remainingQuestions.length === 0) {
           remainingQuestions = allQuestions;
         }
@@ -153,6 +155,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
     if (!userData?.regId || answeredIndices.length === 0) return;
 
+    // Save only answered questions to progress
     try {
       await addDoc(collection(db, "student", userData.regId, "progress", paperId, "history"), {
         score: correct,
@@ -170,7 +173,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center">
         <Loader2 className="w-10 h-10 border-primary animate-spin mx-auto mb-4 text-primary" />
-        <p className="text-primary font-medium">Loading Quiz...</p>
+        <p className="text-primary font-medium">Preparing Session...</p>
       </div>
     </div>
   );
@@ -182,13 +185,14 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           <div className="flex justify-center mb-4">
             <Trophy className="h-12 w-12 text-yellow-500" />
           </div>
-          <CardTitle className="text-3xl font-black text-primary">Result for {userData?.name}</CardTitle>
-          <CardDescription className="text-base font-medium">Paper: {paper?.name}</CardDescription>
+          <CardTitle className="text-3xl font-black text-primary">Assessment Result</CardTitle>
+          <CardDescription className="text-base font-bold text-muted-foreground">{userData?.name}</CardDescription>
+          <p className="text-sm font-medium mt-1">Paper: {paper?.name}</p>
         </CardHeader>
         <CardContent className="p-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Session Total</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Questions in Session</p>
               <p className="text-2xl font-black">{results.total}</p>
             </div>
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
@@ -207,7 +211,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
           <div className="space-y-4 mb-10">
             <div className="flex justify-between items-end">
-              <p className="text-sm font-bold text-muted-foreground">Accuracy</p>
+              <p className="text-sm font-bold text-muted-foreground">Accuracy Score</p>
               <p className="text-3xl font-black text-primary">{results.percentage}%</p>
             </div>
             <Progress value={results.percentage} className="h-4 rounded-full" />
@@ -216,7 +220,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           {results.wrongQuestions.length > 0 && (
             <div className="space-y-6">
               <h3 className="font-black text-xl border-b pb-2 flex items-center gap-2">
-                <XCircle className="text-red-500 h-5 w-5" /> Incorrect Answers Review
+                <XCircle className="text-red-500 h-5 w-5" /> Detailed Mistake Analysis
               </h3>
               <div className="space-y-4">
                 {results.wrongQuestions.map((q, i) => (
@@ -245,7 +249,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             Back to Dashboard
           </Button>
           <Button variant="outline" className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
-            Start New Session
+            Retake Remaining Questions
           </Button>
         </CardFooter>
       </Card>
@@ -272,26 +276,28 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               </SheetTrigger>
               <SheetContent side="right" className="w-[300px] sm:w-[400px]">
                 <SheetHeader>
-                  <SheetTitle>Question Navigator</SheetTitle>
+                  <SheetTitle>Jump to Question</SheetTitle>
                 </SheetHeader>
                 <div className="py-6">
-                  <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                    {questions.map((_, idx) => (
-                      <Button
-                        key={idx}
-                        variant={currentIndex === idx ? "default" : answers[idx] ? "secondary" : "outline"}
-                        className={`h-10 w-full p-0 font-bold ${currentIndex === idx ? 'ring-2 ring-primary ring-offset-2' : ''}`}
-                        onClick={() => setCurrentIndex(idx)}
-                      >
-                        {idx + 1}
-                      </Button>
-                    ))}
-                  </div>
+                  <ScrollArea className="h-[70vh]">
+                    <div className="grid grid-cols-4 sm:grid-cols-5 gap-2 pr-4">
+                      {questions.map((_, idx) => (
+                        <Button
+                          key={idx}
+                          variant={currentIndex === idx ? "default" : answers[idx] ? "secondary" : "outline"}
+                          className={`h-10 w-full p-0 font-bold ${currentIndex === idx ? 'ring-2 ring-primary ring-offset-2' : ''}`}
+                          onClick={() => setCurrentIndex(idx)}
+                        >
+                          {idx + 1}
+                        </Button>
+                      ))}
+                    </div>
+                  </ScrollArea>
                 </div>
               </SheetContent>
             </Sheet>
             <Button variant="default" className="bg-secondary text-white font-bold" onClick={handleSubmit}>
-              Finish
+              Finish Session
             </Button>
           </div>
         </div>
@@ -301,11 +307,11 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
       </header>
 
       <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl">
-        <Card className="shadow-lg border-none">
+        <Card className="shadow-lg border-none overflow-hidden">
           <CardHeader className="border-b bg-muted/20 pb-8">
             <div className="flex justify-between items-start mb-4">
-              <Badge variant="secondary">Question {currentIndex + 1}</Badge>
-              <span className="text-xs font-mono text-muted-foreground">Original Index: #{currentQ?.originalIndex}</span>
+              <Badge variant="secondary">Item {currentIndex + 1} of {questions.length}</Badge>
+              <span className="text-[10px] font-mono text-muted-foreground uppercase">Bank ID: #{currentQ?.originalIndex}</span>
             </div>
             <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed">
               {currentQ?.question}
@@ -326,7 +332,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
                 <div 
                   key={opt.id} 
                   onClick={() => setAnswers(prev => ({ ...prev, [currentIndex]: opt.id }))}
-                  className={`flex items-center space-x-3 p-4 rounded-xl border-2 transition-all cursor-pointer ${answers[currentIndex] === opt.id ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-muted hover:border-primary/20'}`}
+                  className={`flex items-center space-x-3 p-4 rounded-xl border-2 transition-all cursor-pointer ${answers[currentIndex] === opt.id ? 'border-primary bg-primary/5 ring-1 ring-primary shadow-sm' : 'border-muted hover:border-primary/20'}`}
                 >
                   <RadioGroupItem value={opt.id} id={`opt-${opt.id}`} className="sr-only" />
                   <div className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shrink-0 ${answers[currentIndex] === opt.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
@@ -342,11 +348,11 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         </Card>
 
         <div className="flex justify-between items-center mt-8">
-          <Button variant="outline" size="lg" onClick={handlePrev} disabled={currentIndex === 0} className="w-32">
+          <Button variant="outline" size="lg" onClick={handlePrev} disabled={currentIndex === 0} className="w-32 font-bold">
             <ArrowLeft className="h-4 w-4 mr-2" /> Prev
           </Button>
           
-          <div className="text-sm font-bold bg-muted px-4 py-2 rounded-full">
+          <div className="text-xs font-black bg-muted px-4 py-2 rounded-full text-muted-foreground">
             {currentIndex + 1} / {questions.length}
           </div>
 
@@ -355,7 +361,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               Submit
             </Button>
           ) : (
-            <Button size="lg" onClick={handleNext} className="w-32">
+            <Button size="lg" onClick={handleNext} className="w-32 font-bold">
               Next <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
           )}

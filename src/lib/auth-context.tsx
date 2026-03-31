@@ -26,6 +26,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [userData, setUserData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [forceLogoutHandled, setForceLogoutHandled] = useState(false);
+  const [localSessionId] = useState(() => Math.random().toString(36).substring(7));
   const router = useRouter();
 
   const logout = async () => {
@@ -33,9 +34,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (currentUser) {
       const sessionRef = doc(db, "userSessions", currentUser.uid);
       try {
-        await updateDoc(sessionRef, { isActive: false, lastActive: Date.now() });
+        // Only mark inactive if it's our session
+        const snap = await getDoc(sessionRef);
+        if (snap.exists() && snap.data().sessionId === localSessionId) {
+          await updateDoc(sessionRef, { isActive: false, lastActive: Date.now() });
+        }
       } catch (e) {
-        // Normal error if already logged out or permission lost
+        // Handle potential permission errors
       }
     }
     await signOut(auth);
@@ -57,20 +62,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(firebaseUser);
         setLoading(true);
 
-        // Listen for session termination from Admin (FORCE LOGOUT)
+        // Single Session Enforcement: Listen for session changes
         const sessionRef = doc(db, "userSessions", firebaseUser.uid);
         unsubscribeSession = onSnapshot(sessionRef, (snap) => {
           if (snap.exists()) {
             const sessionData = snap.data();
-            if (sessionData.isActive === false && !forceLogoutHandled) {
+            
+            // Check if another device logged in (sessionId mismatch) or admin terminated
+            const isTerminated = sessionData.isActive === false;
+            const isNewSessionElsewhere = sessionData.sessionId && sessionData.sessionId !== localSessionId;
+
+            if ((isTerminated || isNewSessionElsewhere) && !forceLogoutHandled) {
               setForceLogoutHandled(true);
               logout();
-              alert("Your session has been terminated by an administrator.");
+              if (isNewSessionElsewhere) {
+                alert("You have been logged out because a new login was detected on another device.");
+              } else {
+                alert("Your session has been terminated by an administrator.");
+              }
             }
           }
         });
 
-        // Check admins collection
+        // Fetch User Profile
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
@@ -79,7 +93,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setLoading(false);
             syncSession(firebaseUser.uid, "admin", data.name, firebaseUser.email);
           } else {
-            // Check student collection (matching regId@csa.com)
             const email = firebaseUser.email || "";
             if (email.toLowerCase().endsWith("@csa.com")) {
               const regId = email.split("@")[0].toUpperCase();
@@ -95,7 +108,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 }
                 setLoading(false);
               }, (err) => {
-                console.error("Student profile listener error:", err);
                 setUserData(null);
                 setLoading(false);
               });
@@ -107,7 +119,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             }
           }
         }, (err) => {
-          console.error("Admin profile listener error:", err);
           setUserData(null);
           setLoading(false);
         });
@@ -124,15 +135,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeSession) unsubscribeSession();
     };
-  }, []);
+  }, [localSessionId]);
 
   const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
     const sessionRef = doc(db, "userSessions", uid);
     try {
-      // Only set session if not already explicitly terminated by admin in this lifecycle
-      const existing = await getDoc(sessionRef);
-      if (existing.exists() && existing.data().isActive === false) return;
-
       await setDoc(sessionRef, {
         id: uid,
         userId: uid,
@@ -141,6 +148,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         lastActivityTime: new Date().toISOString(),
         deviceInfo: navigator?.userAgent || "Unknown Device",
         isActive: true,
+        sessionId: localSessionId, // Store the unique local session ID
         name: name || email || "Anonymous User",
         email: email,
         role: role,
