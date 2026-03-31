@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, ShieldCheck, AlertCircle, Loader2 } from "lucide-react";
+import { GraduationCap, ShieldCheck, AlertCircle, Loader2, Code2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function LoginPage() {
@@ -60,7 +60,6 @@ export default function LoginPage() {
       }
 
       // 3. Check Admin/Student after Auth
-      // We push to home, the AuthProvider handles the specific redirection based on role
       router.push("/");
     } catch (err: any) {
       console.error("Login attempt failed:", err);
@@ -77,7 +76,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4 space-y-6">
       <Card className="w-full max-w-md shadow-2xl border-t-8 border-t-primary">
         <CardHeader className="text-center space-y-1">
           <div className="flex justify-center mb-2">
@@ -135,6 +134,11 @@ export default function LoginPage() {
           <p>Accounts managed by Admin. Public registration is disabled.</p>
         </CardFooter>
       </Card>
+      
+      <div className="flex items-center gap-2 text-muted-foreground text-sm font-medium bg-white/50 backdrop-blur-sm px-4 py-2 rounded-full border shadow-sm">
+        <Code2 className="h-4 w-4 text-primary" />
+        <span>Developed by <span className="text-primary font-bold">Harsh Singh</span></span>
+      </div>
     </div>
   );
 }

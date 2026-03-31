@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, doc, query, where } from "firebase/firestore";
-import { deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -39,7 +39,9 @@ export default function ActiveSessions() {
   const terminateSession = (id: string, name: string) => {
     if (confirm(`Force logout ${name}?`)) {
       const sessionRef = doc(db, "userSessions", id);
-      deleteDocumentNonBlocking(sessionRef);
+      // We update the session to be inactive instead of deleting it.
+      // This is more reliable as the admin has 'update' permissions in the rules.
+      updateDocumentNonBlocking(sessionRef, { isActive: false, lastActive: Date.now() });
       toast({ 
         title: "Termination Initiated", 
         description: `Request to log out ${name} sent to server.` 
