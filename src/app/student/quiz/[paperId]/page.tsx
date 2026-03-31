@@ -58,18 +58,18 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         if (!res.ok) throw new Error("Failed to fetch questions");
         const allQuestionsRaw = await res.json();
 
-        // Normalize questions (handle option1 vs optionA)
+        // Normalize questions (handle bilingual nested format and legacy flat format)
         const allQuestions = allQuestionsRaw.map((q: any, originalIndex: number) => {
+          const isBilingual = q.question_en && q.options;
+          
           return {
-            ...q,
             originalIndex,
-            // Normalize options to A, B, C, D
-            optA: q.optionA || q.option1 || q.opt1 || "",
-            optB: q.optionB || q.option2 || q.opt2 || "",
-            optC: q.optionC || q.option3 || q.opt3 || "",
-            optD: q.optionD || q.option4 || q.opt4 || "",
-            // Normalize answer mapping if it's numeric 1-4
-            correctAnswer: q.answer === "1" ? "A" : q.answer === "2" ? "B" : q.answer === "3" ? "C" : q.answer === "4" ? "D" : q.answer
+            question: isBilingual ? q.question_en : (q.question || q.question_hi || "Question text missing"),
+            optA: isBilingual ? (q.options?.A?.en || q.options?.A?.hi || "") : (q.optionA || q.option1 || q.opt1 || ""),
+            optB: isBilingual ? (q.options?.B?.en || q.options?.B?.hi || "") : (q.optionB || q.option2 || q.opt2 || ""),
+            optC: isBilingual ? (q.options?.C?.en || q.options?.C?.hi || "") : (q.optionC || q.option3 || q.opt3 || ""),
+            optD: isBilingual ? (q.options?.D?.en || q.options?.D?.hi || "") : (q.optionD || q.option4 || q.opt4 || ""),
+            correctAnswer: isBilingual ? q.correct_option : (q.answer === "1" ? "A" : q.answer === "2" ? "B" : q.answer === "3" ? "C" : q.answer === "4" ? "D" : q.answer)
           };
         });
 
@@ -81,7 +81,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           availableQuestions = allQuestions;
         }
 
-        // Limit to 100 questions for performance
         setQuestions(availableQuestions.slice(0, 100));
         setLoading(false);
       } catch (err: any) {

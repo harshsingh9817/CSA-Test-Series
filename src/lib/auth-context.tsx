@@ -4,7 +4,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "./firebase";
-import { doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
@@ -27,6 +27,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  const logout = async () => {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      const sessionRef = doc(db, "userSessions", currentUser.uid);
+      try {
+        await updateDoc(sessionRef, { isActive: false, lastActive: Date.now() });
+      } catch (e) {
+        console.warn("Could not deactivate session on logout:", e);
+      }
+    }
+    await signOut(auth);
+    setUser(null);
+    setUserData(null);
+    router.push("/login");
+  };
+
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribeSession: (() => void) | null = null;
@@ -40,16 +56,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(firebaseUser);
         setLoading(true);
 
-        // Listen for session termination from Admin
+        // Listen for session termination from Admin (FORCE LOGOUT)
         const sessionRef = doc(db, "userSessions", firebaseUser.uid);
         unsubscribeSession = onSnapshot(sessionRef, (snap) => {
-          if (snap.exists() && snap.data().isActive === false) {
-            // Session was terminated by admin
-            logout();
+          if (snap.exists()) {
+            const sessionData = snap.data();
+            if (sessionData.isActive === false) {
+              console.log("Session terminated by administrator.");
+              logout();
+            }
           }
         });
 
-        // 1. Check admins collection first
+        // 1. Check admins collection
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
@@ -107,6 +126,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
     const sessionRef = doc(db, "userSessions", uid);
     try {
+      // Only set session if not already explicitly terminated by admin in this lifecycle
+      const existing = await getDoc(sessionRef);
+      if (existing.exists() && existing.data().isActive === false) return;
+
       await setDoc(sessionRef, {
         id: uid,
         userId: uid,
@@ -123,19 +146,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (e) {
       console.warn("Could not sync session to Firestore:", e);
     }
-  };
-
-  const logout = async () => {
-    if (auth.currentUser) {
-      const sessionRef = doc(db, "userSessions", auth.currentUser.uid);
-      try {
-        await updateDoc(sessionRef, { isActive: false });
-      } catch (e) {}
-    }
-    await signOut(auth);
-    setUser(null);
-    setUserData(null);
-    router.push("/login");
   };
 
   return (
