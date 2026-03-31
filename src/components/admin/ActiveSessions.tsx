@@ -1,30 +1,40 @@
-
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, doc } from "firebase/firestore";
+import { collection, onSnapshot, doc, query, where } from "firebase/firestore";
 import { deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ShieldAlert, Monitor, UserX } from "lucide-react";
+import { ShieldAlert, Monitor, UserX, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 
 export default function ActiveSessions() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "userSessions"), (snapshot) => {
+    // Only show sessions that are explicitly active
+    const q = query(collection(db, "userSessions"), where("isActive", "==", true));
+    
+    const unsub = onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setSessions(list);
       setLoading(false);
+      setRefreshing(false);
     });
     return () => unsub();
   }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    // Real-time listener handles the data, this just provides visual feedback
+    setTimeout(() => setRefreshing(false), 500);
+  };
 
   const terminateSession = (id: string, name: string) => {
     if (confirm(`Force logout ${name}?`)) {
@@ -39,12 +49,18 @@ export default function ActiveSessions() {
 
   return (
     <Card className="border-t-4 border-t-secondary">
-      <CardHeader>
-        <div className="flex items-center gap-2 mb-1">
-          <ShieldAlert className="h-5 w-5 text-secondary" />
-          <CardTitle>Active User Sessions</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <ShieldAlert className="h-5 w-5 text-secondary" />
+            <CardTitle>Active User Sessions</CardTitle>
+          </div>
+          <CardDescription>Real-time platform access monitoring.</CardDescription>
         </div>
-        <CardDescription>Monitor and manage real-time platform access. Enforcement: 1 session/account.</CardDescription>
+        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
       </CardHeader>
       <CardContent>
         <div className="rounded-md border">
@@ -52,7 +68,7 @@ export default function ActiveSessions() {
             <TableHeader className="bg-muted/30">
               <TableRow>
                 <TableHead>User</TableHead>
-                <TableHead>Device / PC Info</TableHead>
+                <TableHead>Device Info</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Last Activity</TableHead>
                 <TableHead className="text-right">Access Control</TableHead>
@@ -90,7 +106,7 @@ export default function ActiveSessions() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs">
-                      {session.lastActivityTime ? new Date(session.lastActivityTime).toLocaleTimeString() : 'N/A'}
+                      {session.lastActivityTime ? new Date(session.lastActivityTime).toLocaleTimeString() : 'Recently'}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button 

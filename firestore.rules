@@ -1,4 +1,3 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -11,44 +10,53 @@ service cloud.firestore {
       return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    function isStudent(regId) {
+    // A student can access their own profile if the email in the document matches their auth email
+    function isStudentOwner(regId) {
       return isSignedIn() && (
-        // Allow access if the email matches the record
-        get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email
+        // resource.data refers to the document being read
+        (resource != null && resource.data.email == request.auth.token.email) ||
+        // request.resource.data refers to the document being written
+        (request.resource != null && request.resource.data.email == request.auth.token.email)
       );
     }
 
     match /student/{regId} {
-      allow get: if isStudent(regId) || isAdmin();
+      // Allow get if it's the student themselves or an admin
+      allow get: if isSignedIn() && (resource.data.email == request.auth.token.email || isAdmin());
       allow list: if isAdmin();
       allow create, update, delete: if isAdmin();
 
       match /progress/{paperId} {
-        allow get, list: if isStudent(regId) || isAdmin();
-        allow create, update: if isStudent(regId);
+        // Nested progress needs access based on the parent student record logic
+        // We use a simplified check here: if the student can get the parent, they can access progress
+        allow get, list: if isSignedIn() && (get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email || isAdmin());
+        allow create, update: if isSignedIn() && get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email;
         allow delete: if isAdmin();
+        
+        match /history/{historyId} {
+           allow get, list: if isSignedIn() && (get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email || isAdmin());
+           allow create: if isSignedIn() && get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email;
+        }
       }
     }
 
     match /admins/{adminId} {
-      allow get: if (isSignedIn() && request.auth.uid == adminId) || isAdmin();
+      allow get: if isSignedIn() && (request.auth.uid == adminId || isAdmin());
       allow list: if isAdmin();
+      // Allow the primary admin to bootstrap themselves
       allow create: if isSignedIn() && (isAdmin() || request.resource.data.email == "sunilsingh8896@gmail.com");
       allow update, delete: if isAdmin();
     }
 
     match /userSessions/{sessionId} {
-      allow get, update: if (isSignedIn() && request.auth.uid == sessionId) || isAdmin();
+      // Users can manage their own session
+      allow get, update: if isSignedIn() && (request.auth.uid == sessionId || isAdmin());
+      // Admin can monitor everything
       allow list, delete: if isAdmin();
       allow create: if isSignedIn();
     }
 
     match /papers/{paperId} {
-      allow get, list: if isSignedIn();
-      allow create, update, delete: if isAdmin();
-    }
-    
-    match /questionPapers/{paperId} {
       allow get, list: if isSignedIn();
       allow create, update, delete: if isAdmin();
     }

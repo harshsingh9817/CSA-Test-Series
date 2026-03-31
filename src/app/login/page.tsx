@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState } from "react";
@@ -11,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { GraduationCap, ShieldCheck, AlertCircle, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function LoginPage() {
@@ -21,7 +19,6 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const router = useRouter();
-  const { toast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,58 +29,47 @@ export default function LoginPage() {
       let loginEmail = identifier.trim();
       const isRegId = !loginEmail.includes("@");
       
-      // Automatic domain mapping as requested: regId@csa.com
       if (isRegId) {
         loginEmail = `${loginEmail.toLowerCase()}@csa.com`;
       }
 
-      // 1. Authenticate with Firebase Auth
+      // 1. Authenticate
       const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
       const user = userCredential.user;
 
-      // 2. Bootstrap Primary Admin if needed
+      // 2. Primary Admin Bootstrap
       const primaryAdminEmail = "sunilsingh8896@gmail.com";
       if (loginEmail.toLowerCase() === primaryAdminEmail.toLowerCase()) {
-        const adminRef = doc(db, "admins", user.uid);
-        const adminSnap = await getDoc(adminRef);
-        if (!adminSnap.exists()) {
-          await setDoc(adminRef, {
-            id: user.uid,
-            email: loginEmail,
-            name: "Sunil Singh",
-            role: "admin",
-            createdAt: Date.now()
-          });
+        try {
+          const adminRef = doc(db, "admins", user.uid);
+          const adminSnap = await getDoc(adminRef);
+          if (!adminSnap.exists()) {
+            await setDoc(adminRef, {
+              id: user.uid,
+              email: loginEmail,
+              name: "Sunil Singh",
+              role: "admin",
+              createdAt: Date.now()
+            });
+          }
+        } catch (rulesError) {
+          console.warn("Bootstrap sync error - usually handled by rules:", rulesError);
         }
         router.push("/admin");
         return;
       }
 
-      // 3. Check for existing Admin
-      const adminDoc = await getDoc(doc(db, "admins", user.uid));
-      if (adminDoc.exists()) {
-        router.push("/admin");
-        return;
-      }
-
-      // 4. Check Student Profile
-      // For students, we use the Reg ID (from email) as the Firestore Doc ID
-      const regIdFromEmail = loginEmail.split("@")[0].toUpperCase();
-      const studentDoc = await getDoc(doc(db, "student", regIdFromEmail));
-      
-      if (studentDoc.exists()) {
-        router.push("/student");
-        return;
-      }
-
-      // 5. Auth worked but no profile found
-      setErrorMessage("Identity verified, but no profile was found in the database. Contact your administrator.");
+      // 3. Check Admin/Student after Auth
+      // We push to home, the AuthProvider handles the specific redirection based on role
+      router.push("/");
     } catch (err: any) {
-      console.error(err);
+      console.error("Login attempt failed:", err);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        setErrorMessage("Access Denied: Invalid Registration ID or Password.");
+        setErrorMessage("Invalid ID or Password. Ensure your account has been created by an administrator.");
+      } else if (err.code === 'permission-denied') {
+        setErrorMessage("Access Denied. Your profile could not be verified by the database.");
       } else {
-        setErrorMessage(err.message || "A secure connection could not be established.");
+        setErrorMessage(err.message || "A connection error occurred.");
       }
     } finally {
       setLoading(false);
@@ -100,26 +86,23 @@ export default function LoginPage() {
             </div>
           </div>
           <CardTitle className="text-2xl font-black font-headline text-primary">CSA QUIZMASTER</CardTitle>
-          <CardDescription className="font-medium">Student & Admin Gateway</CardDescription>
+          <CardDescription className="font-medium">Secure Learning Gateway</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {errorMessage && (
-            <Alert variant="destructive" className="animate-in fade-in slide-in-from-top-2">
+            <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Login Error</AlertTitle>
-              <AlertDescription className="text-xs">
-                {errorMessage}
-              </AlertDescription>
+              <AlertTitle>Login Issue</AlertTitle>
+              <AlertDescription className="text-xs">{errorMessage}</AlertDescription>
             </Alert>
           )}
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="identifier" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Registration ID / Email</Label>
+              <Label htmlFor="identifier" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">ID / Email</Label>
               <Input
                 id="identifier"
-                type="text"
                 placeholder="e.g. ST101"
-                className="h-12 border-2 focus:ring-primary"
+                className="h-12 border-2"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 required
@@ -132,29 +115,24 @@ export default function LoginPage() {
                 id="password"
                 type="password"
                 placeholder="••••••••"
-                className="h-12 border-2 focus:ring-primary"
+                className="h-12 border-2"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={loading}
               />
             </div>
-            <Button type="submit" className="w-full h-12 text-lg font-bold shadow-lg" disabled={loading}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  Authenticating...
-                </>
-              ) : "Sign In to Portal"}
+            <Button type="submit" className="w-full h-12 text-lg font-bold" disabled={loading}>
+              {loading ? <Loader2 className="animate-spin" /> : "Sign In"}
             </Button>
           </form>
         </CardContent>
-        <CardFooter className="flex flex-col gap-3 text-center text-xs text-muted-foreground border-t pt-6 bg-muted/20 rounded-b-lg">
+        <CardFooter className="flex flex-col gap-3 text-center text-xs text-muted-foreground border-t pt-6">
           <div className="flex items-center justify-center gap-1.5 text-primary font-bold">
             <ShieldCheck className="h-4 w-4" />
-            <span>SECURE SYSTEM ACCESS</span>
+            <span>AUTHENTICATED ACCESS ONLY</span>
           </div>
-          <p>Accounts are managed by the administrator. Registration is disabled for public users.</p>
+          <p>Accounts managed by Admin. Public registration is disabled.</p>
         </CardFooter>
       </Card>
     </div>

@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -12,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, Loader2 } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 export default function StudentManager() {
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const { toast } = useToast();
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -37,9 +37,16 @@ export default function StudentManager() {
       const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setStudents(list);
       setLoading(false);
+      setRefreshing(false);
     });
     return () => unsub();
   }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    // Real-time listener handles the data, this just provides visual feedback
+    setTimeout(() => setRefreshing(false), 500);
+  };
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,19 +61,14 @@ export default function StudentManager() {
       return;
     }
 
-    // We use a secondary Firebase App to create the user in Auth without signing out the current admin
-    const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+    const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp-" + Date.now());
     const secondaryAuth = getAuth(secondaryApp);
 
     try {
-      // 1. Create User in Firebase Auth
       await createUserWithEmailAndPassword(secondaryAuth, studentEmail, password);
-      
-      // 2. Immediately sign out the secondary instance
       await signOut(secondaryAuth);
       await deleteApp(secondaryApp);
 
-      // 3. Save to 'student' collection in Firestore
       const studentDoc = {
         id: cleanRegId,
         name,
@@ -81,7 +83,7 @@ export default function StudentManager() {
 
       toast({ 
         title: "Student Created", 
-        description: `Account ${cleanRegId} with email ${studentEmail} is ready.` 
+        description: `Account ${cleanRegId} is ready.` 
       });
       
       setIsAddOpen(false);
@@ -90,13 +92,11 @@ export default function StudentManager() {
       console.error(err);
       toast({ 
         variant: "destructive", 
-        title: "Automation Failed", 
+        title: "Creation Failed", 
         description: err.code === 'auth/email-already-in-use' 
-          ? "This Student ID is already registered in Auth." 
+          ? "This Student ID is already in use." 
           : err.message 
       });
-      
-      // Cleanup secondary app if it exists
       try { await deleteApp(secondaryApp); } catch (e) {}
     } finally {
       setAdding(false);
@@ -108,10 +108,10 @@ export default function StudentManager() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Are you sure you want to delete student ${name}? Note: This only removes their profile, not their Auth account.`)) {
+    if (confirm(`Delete student ${name}?`)) {
       try {
         await deleteDoc(doc(db, "student", id));
-        toast({ title: "Profile Deleted", description: "Student database record removed." });
+        toast({ title: "Profile Deleted", description: "Record removed." });
       } catch (err: any) {
         toast({ variant: "destructive", title: "Error", description: err.message });
       }
@@ -129,67 +129,67 @@ export default function StudentManager() {
         <div className="relative w-full md:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input 
-            placeholder="Search by name or Reg ID..." 
+            placeholder="Search students..." 
             className="pl-10" 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogTrigger asChild>
-            <Button className="w-full md:w-auto flex items-center gap-2">
-              <UserPlus className="h-4 w-4" /> Add New Student
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Create Student Account</DialogTitle>
-              <DialogDescription>
-                This will automatically create a login at <strong>[ID]@csa.com</strong>.
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleAddStudent} className="space-y-4" autoComplete="off">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <div className="flex gap-2 w-full md:w-auto">
+          <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </Button>
+          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+            <DialogTrigger asChild>
+              <Button className="flex-1 md:flex-none flex items-center gap-2">
+                <UserPlus className="h-4 w-4" /> Add Student
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Create Student Account</DialogTitle>
+                <DialogDescription>
+                  Login will be <strong>[ID]@csa.com</strong>.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleAddStudent} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Full Name</Label>
+                    <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="course">Course</Label>
+                    <Input id="course" value={course} onChange={(e) => setCourse(e.target.value)} required />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="course">Course</Label>
-                  <Input id="course" value={course} onChange={(e) => setCourse(e.target.value)} required />
+                  <Label htmlFor="regId">Registration ID</Label>
+                  <Input id="regId" placeholder="e.g. ST101" value={regId} onChange={(e) => setRegId(e.target.value)} required />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="regId">Registration ID (Login Username)</Label>
-                <Input id="regId" placeholder="e.g. ST101" value={regId} onChange={(e) => setRegId(e.target.value)} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="new-password">Login Password</Label>
-                <Input id="new-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="notice">Administrative Notice</Label>
-                <Textarea id="notice" placeholder="Add notes for this student..." value={notice} onChange={(e) => setNotice(e.target.value)} />
-              </div>
-              <DialogFooter>
-                <Button type="submit" disabled={adding} className="w-full">
-                  {adding ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating Auth & Profile...
-                    </>
-                  ) : "Save Account"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div className="space-y-2">
+                  <Label htmlFor="new-password">Password</Label>
+                  <Input id="new-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notice">Administrative Notice</Label>
+                  <Textarea id="notice" placeholder="Notes..." value={notice} onChange={(e) => setNotice(e.target.value)} />
+                </div>
+                <DialogFooter>
+                  <Button type="submit" disabled={adding} className="w-full">
+                    {adding ? <Loader2 className="animate-spin" /> : "Save Account"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg text-primary font-bold">Student Directory</CardTitle>
-          <CardDescription>Accounts ending in @csa.com are generated automatically.</CardDescription>
+          <CardDescription>Records linked to @csa.com emails.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-hidden">
@@ -199,28 +199,22 @@ export default function StudentManager() {
                   <TableHead>Student Name</TableHead>
                   <TableHead>Course</TableHead>
                   <TableHead>Reg ID</TableHead>
-                  <TableHead>Login Email</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-10">Syncing student database...</TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={4} className="text-center py-10">Loading...</TableCell></TableRow>
                 ) : filteredStudents.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-10">No students found.</TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={4} className="text-center py-10">No students found.</TableCell></TableRow>
                 ) : (
                   filteredStudents.map((student) => (
                     <TableRow key={student.id}>
                       <TableCell className="font-medium">{student.name}</TableCell>
                       <TableCell>{student.course}</TableCell>
                       <TableCell className="font-mono text-xs">{student.regId}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{student.email}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDelete(student.id, student.name)}>
+                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(student.id, student.name)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </TableCell>

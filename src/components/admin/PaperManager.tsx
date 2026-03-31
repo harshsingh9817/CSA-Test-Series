@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FilePlus, Github, Info, BrainCircuit, Trash2 } from "lucide-react";
+import { FilePlus, Github, Info, BrainCircuit, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { analyzeQuestionPaperContent } from "@/ai/flows/analyze-question-paper-content";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ export default function PaperManager() {
   const [paperName, setPaperName] = useState("");
   const [githubLink, setGithubLink] = useState("");
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
   const [analyzing, setAnalyzing] = useState(false);
@@ -27,9 +28,15 @@ export default function PaperManager() {
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "papers"), (snapshot) => {
       setPapers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setRefreshing(false);
     });
     return () => unsub();
   }, []);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 500);
+  };
 
   const handleAddPaper = async () => {
     if (!paperName || !githubLink) return;
@@ -37,12 +44,11 @@ export default function PaperManager() {
 
     try {
       const res = await fetch(githubLink);
-      if (!res.ok) throw new Error("Could not fetch JSON from link.");
+      if (!res.ok) throw new Error("Could not fetch JSON.");
       const questions = await res.json();
       
-      if (!Array.isArray(questions)) throw new Error("JSON is not an array of questions.");
+      if (!Array.isArray(questions)) throw new Error("Invalid JSON format.");
 
-      // Run AI Analysis
       setAnalyzing(true);
       const aiResults = await analyzeQuestionPaperContent({ githubJsonLink: githubLink });
       setAnalysis(aiResults);
@@ -57,7 +63,7 @@ export default function PaperManager() {
         summary: aiResults.summary
       });
 
-      toast({ title: "Paper Added", description: `Added ${paperName} with ${questions.length} questions.` });
+      toast({ title: "Paper Added", description: `${paperName} imported.` });
       setPaperName("");
       setGithubLink("");
     } catch (err: any) {
@@ -71,7 +77,7 @@ export default function PaperManager() {
   const deletePaper = async (id: string) => {
     if (confirm("Delete this paper?")) {
       await deleteDoc(doc(db, "papers", id));
-      toast({ title: "Deleted", description: "Question paper removed." });
+      toast({ title: "Deleted", description: "Removed." });
     }
   };
 
@@ -80,28 +86,26 @@ export default function PaperManager() {
       <div className="lg:col-span-1 space-y-6">
         <Card className="border-t-4 border-t-primary">
           <CardHeader>
-            <CardTitle className="text-lg">Add Question Paper</CardTitle>
-            <CardDescription>Upload a Github JSON link to import questions.</CardDescription>
+            <CardTitle className="text-lg">Import Paper</CardTitle>
+            <CardDescription>Use GitHub JSON URL.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Paper Name</Label>
               <Input 
-                placeholder="e.g., Mathematics Midterm 2024" 
+                placeholder="Math Final..." 
                 value={paperName}
                 onChange={(e) => setPaperName(e.target.value)}
               />
             </div>
             <div className="space-y-2">
               <Label>GitHub JSON URL</Label>
-              <div className="flex gap-2">
-                <Input 
-                  placeholder="https://raw.githubusercontent.com/..." 
-                  className="font-mono text-xs"
-                  value={githubLink}
-                  onChange={(e) => setGithubLink(e.target.value)}
-                />
-              </div>
+              <Input 
+                placeholder="https://..." 
+                className="font-mono text-xs"
+                value={githubLink}
+                onChange={(e) => setGithubLink(e.target.value)}
+              />
             </div>
             <Button className="w-full" onClick={handleAddPaper} disabled={loading || !paperName || !githubLink}>
               {loading ? "Processing..." : "Import & Analyze"}
@@ -110,72 +114,47 @@ export default function PaperManager() {
         </Card>
 
         {analyzing && (
-          <Card className="border-accent bg-accent/5">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3 animate-pulse text-accent">
-                <BrainCircuit className="h-6 w-6" />
-                <span className="font-semibold">AI is analyzing question content...</span>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="p-4 bg-accent/10 border border-accent rounded-lg flex items-center gap-2 animate-pulse">
+            <BrainCircuit className="h-5 w-5 text-accent" />
+            <span className="text-sm font-medium">AI Analyzing...</span>
+          </div>
         )}
 
         {analysis && (
-          <Alert className="bg-white border-primary/20 shadow-sm">
-            <BrainCircuit className="h-4 w-4 text-primary" />
-            <AlertTitle className="text-primary font-bold">Latest Analysis Results</AlertTitle>
-            <AlertDescription className="mt-2 space-y-3">
-              <div className="flex flex-wrap gap-1">
-                {analysis.topics.map((t: string) => <Badge key={t} variant="outline" className="bg-primary/5">{t}</Badge>)}
-              </div>
-              <p className="text-xs text-muted-foreground">{analysis.summary}</p>
-            </AlertDescription>
+          <Alert className="bg-white">
+            <BrainCircuit className="h-4 w-4" />
+            <AlertTitle>Analysis Complete</AlertTitle>
+            <AlertDescription className="text-xs">{analysis.summary}</AlertDescription>
           </Alert>
         )}
       </div>
 
       <div className="lg:col-span-2">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Available Papers</CardTitle>
-            <CardDescription>Manage your repository of question banks.</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg">Question Bank</CardTitle>
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="rounded-md border overflow-hidden">
               <Table>
                 <TableHeader className="bg-muted/50">
                   <TableRow>
-                    <TableHead>Paper Name</TableHead>
-                    <TableHead>Total Questions</TableHead>
-                    <TableHead>Topics</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Questions</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {papers.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">No papers imported yet.</TableCell>
-                    </TableRow>
+                    <TableRow><TableCell colSpan={3} className="text-center py-10">No papers.</TableCell></TableRow>
                   ) : (
                     papers.map((paper) => (
                       <TableRow key={paper.id}>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-semibold">{paper.name}</span>
-                            <span className="text-[10px] text-muted-foreground truncate max-w-[200px]">{paper.url}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className="font-mono">{paper.count}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {paper.topics?.slice(0, 2).map((t: string) => (
-                              <Badge key={t} variant="outline" className="text-[10px] px-1 h-5">{t}</Badge>
-                            ))}
-                            {paper.topics?.length > 2 && <span className="text-[10px] text-muted-foreground">+{paper.topics.length - 2} more</span>}
-                          </div>
-                        </TableCell>
+                        <TableCell className="font-semibold">{paper.name}</TableCell>
+                        <TableCell><Badge variant="secondary">{paper.count}</Badge></TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deletePaper(paper.id)}>
                             <Trash2 className="h-4 w-4" />
