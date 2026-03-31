@@ -5,18 +5,20 @@ import React, { useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, ShieldCheck } from "lucide-react";
+import { GraduationCap, ShieldCheck, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const router = useRouter();
   const { toast } = useToast();
@@ -24,6 +26,7 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setErrorMessage(null);
 
     try {
       let loginEmail = identifier.trim();
@@ -67,18 +70,14 @@ export default function LoginPage() {
       }
 
       // 5. Profile not found
-      toast({
-        variant: "destructive",
-        title: "Profile Missing",
-        description: "Credentials are valid, but no student/admin profile was found.",
-      });
+      setErrorMessage("Auth successful, but no student or admin profile was found in the database. Please contact your administrator.");
     } catch (err: any) {
       console.error(err);
-      toast({
-        variant: "destructive",
-        title: "Login Failed",
-        description: "Invalid credentials. Please contact your administrator.",
-      });
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setErrorMessage("Invalid credentials. If this is your first time, ensure your administrator has created your account in the Firebase Auth console.");
+      } else {
+        setErrorMessage(err.message || "An unexpected error occurred during login.");
+      }
     } finally {
       setLoading(false);
     }
@@ -93,10 +92,19 @@ export default function LoginPage() {
               <GraduationCap className="h-8 w-8 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold font-headline">QuizMaster Hub</CardTitle>
+          <CardTitle className="text-2xl font-bold font-headline text-primary">QuizMaster Hub</CardTitle>
           <CardDescription>Secure Student & Admin Portal</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {errorMessage && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Login Issue</AlertTitle>
+              <AlertDescription className="text-xs">
+                {errorMessage}
+              </AlertDescription>
+            </Alert>
+          )}
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="identifier">Registration ID or Email</Label>
@@ -132,6 +140,7 @@ export default function LoginPage() {
             <ShieldCheck className="h-4 w-4" />
             <span>Managed by Administrator</span>
           </div>
+          <p className="mt-2">Student accounts must be created by an admin.</p>
         </CardFooter>
       </Card>
     </div>

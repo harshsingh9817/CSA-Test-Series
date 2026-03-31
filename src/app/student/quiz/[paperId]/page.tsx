@@ -1,9 +1,10 @@
+
 "use client";
 
 import React, { useState, useEffect, use } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, collection, addDoc, getDocs, query, limit } from "firebase/firestore";
+import { doc, getDoc, collection, addDoc, getDocs } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Flag } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 
 export default function QuizPage({ params }: { params: Promise<{ paperId: string }> }) {
   const { paperId } = use(params);
@@ -28,7 +30,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   const [score, setScore] = useState(0);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !userData || userData.role !== "student") return;
 
     const loadQuiz = async () => {
       try {
@@ -44,8 +46,8 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
-        // Fetch user progress to exclude completed questions
-        const progressSnap = await getDocs(collection(db, "users", user.uid, "progress", paperId, "history"));
+        // Fetch user progress to exclude completed questions from /student/{regId}/progress/{paperId}
+        const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const completedIndices = new Set<number>();
         progressSnap.forEach(doc => {
           doc.data().completedIndices?.forEach((idx: number) => completedIndices.add(idx));
@@ -65,7 +67,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           availableQuestions = allQuestions.map((q: any, originalIndex: number) => ({ ...q, originalIndex }));
         }
 
-        // Subset of 100 questions
+        // Subset of 100 questions or all if less than 100
         const quizSubset = availableQuestions.slice(0, 100);
         setQuestions(quizSubset);
         setLoading(false);
@@ -76,7 +78,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     };
 
     loadQuiz();
-  }, [paperId, user]);
+  }, [paperId, user, userData, toast, router]);
 
   const handleNext = () => {
     if (currentIndex < questions.length - 1) {
@@ -101,10 +103,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     setScore(correct);
     setSubmitted(true);
 
+    if (!userData?.regId) return;
+
     try {
-      // Save progress
+      // Save progress to /student/{regId}/progress/{paperId}/history
       const completedIndices = questions.map(q => q.originalIndex);
-      await addDoc(collection(db, "users", user!.uid, "progress", paperId, "history"), {
+      await addDoc(collection(db, "student", userData.regId, "progress", paperId, "history"), {
         score: correct,
         total: questions.length,
         completedIndices: completedIndices,
@@ -133,7 +137,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             <CheckCircle2 className="h-16 w-16 text-secondary" />
           </div>
           <CardTitle className="text-3xl font-bold font-headline">Quiz Completed!</CardTitle>
-          <CardDescription className="text-lg">Paper: {paper.name}</CardDescription>
+          <CardDescription className="text-lg">Paper: {paper?.name}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="bg-primary/5 p-8 rounded-2xl border border-primary/10 text-center">
@@ -160,7 +164,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             <ChevronLeft className="h-4 w-4" /> Back to Portal
           </Button>
           <div className="text-center hidden sm:block">
-            <h1 className="font-bold font-headline">{paper.name}</h1>
+            <h1 className="font-bold font-headline">{paper?.name}</h1>
             <p className="text-xs text-muted-foreground">Question {currentIndex + 1} of {questions.length}</p>
           </div>
           <Button variant="outline" className="text-destructive border-destructive/20" onClick={handleSubmit}>
@@ -182,7 +186,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               </Button>
             </div>
             <CardTitle className="text-xl font-medium leading-relaxed">
-              {currentQ.question}
+              {currentQ?.question}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-8 pb-12">

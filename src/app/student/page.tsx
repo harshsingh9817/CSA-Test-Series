@@ -1,9 +1,10 @@
+
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, query, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, getDocs } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,35 +19,40 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !userData || userData.role !== "student") return;
 
     // Fetch Papers
     const unsub = onSnapshot(collection(db, "papers"), async (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPapers(list);
 
-      // Fetch Progress for each paper
+      // Fetch Progress for each paper from the /student/{regId}/progress/{paperId}/history
       const prog: Record<string, any> = {};
       for (const p of list) {
-        const progressSnap = await getDocs(collection(db, "users", user.uid, "progress", p.id, "history"));
-        const completedIndices = new Set();
-        progressSnap.forEach(doc => {
-          const data = doc.data();
-          if (data.completedIndices) {
-            data.completedIndices.forEach((idx: number) => completedIndices.add(idx));
-          }
-        });
-        prog[p.id] = {
-          completedCount: completedIndices.size,
-          total: p.count
-        };
+        try {
+          const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", p.id, "history"));
+          const completedIndices = new Set();
+          progressSnap.forEach(doc => {
+            const data = doc.data();
+            if (data.completedIndices) {
+              data.completedIndices.forEach((idx: number) => completedIndices.add(idx));
+            }
+          });
+          prog[p.id] = {
+            completedCount: completedIndices.size,
+            total: p.count || 0
+          };
+        } catch (e) {
+          console.error("Error fetching progress for paper", p.id, e);
+          prog[p.id] = { completedCount: 0, total: p.count || 0 };
+        }
       }
       setProgressData(prog);
       setLoading(false);
     });
 
     return () => unsub();
-  }, [user]);
+  }, [user, userData]);
 
   if (!userData || userData.role !== "student") return null;
 
@@ -58,7 +64,7 @@ export default function StudentDashboard() {
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-primary/10 rounded-lg">
-              <GraduationCap className="h-5 w-5 text-primary" />
+              < GraduationCap className="h-5 w-5 text-primary" />
             </div>
             <h1 className="text-xl font-bold font-headline text-primary">Student Portal</h1>
           </div>
@@ -129,7 +135,7 @@ export default function StudentDashboard() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {papers.map((paper) => {
-                const prog = progressData[paper.id] || { completedCount: 0, total: paper.count };
+                const prog = progressData[paper.id] || { completedCount: 0, total: paper.count || 0 };
                 const pct = Math.round((prog.completedCount / prog.total) * 100) || 0;
                 
                 return (
@@ -156,7 +162,7 @@ export default function StudentDashboard() {
                       <Link href={`/student/quiz/${paper.id}`} className="w-full">
                         <Button className="w-full group-hover:bg-primary transition-colors flex items-center gap-2">
                           <PlayCircle className="h-4 w-4" /> 
-                          {prog.completedCount >= prog.total ? "Retake Paper" : "Start Quiz"}
+                          {prog.completedCount >= prog.total && prog.total > 0 ? "Retake Paper" : "Start Quiz"}
                         </Button>
                       </Link>
                     </CardFooter>
