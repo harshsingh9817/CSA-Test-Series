@@ -1,67 +1,113 @@
+
 "use client";
 
 import React, { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, AlertCircle } from "lucide-react";
+import { GraduationCap, AlertCircle, UserPlus, LogIn } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
   const error = searchParams.get("error");
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      // Standard Firebase Auth
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-
-      // Check Admins collection
-      let userDoc = await getDoc(doc(db, "admins", user.uid));
-      if (userDoc.exists()) {
-        router.push("/admin");
-        return;
+      // Process login identifier: if no @, assume it's a Reg ID
+      let loginEmail = email.trim();
+      if (!loginEmail.includes("@")) {
+        loginEmail = `${loginEmail}@quizmaster.com`;
       }
 
-      // Check Students collection
-      userDoc = await getDoc(doc(db, "students", user.uid));
-      if (userDoc.exists()) {
-        router.push("/student");
-        return;
-      }
+      if (mode === "signup") {
+        // Registration Logic
+        const userCredential = await createUserWithEmailAndPassword(auth, loginEmail, password);
+        const user = userCredential.user;
 
-      // Fallback for initial admin creation if email matches predefined admin
-      const adminEmail = "sunilsingh8896@gmail.com";
-      if (email === adminEmail) {
-        await setDoc(doc(db, "admins", user.uid), {
-          id: user.uid,
-          email: email,
-          name: "Sunil Singh",
-        });
-        router.push("/admin");
-        return;
-      }
+        // Default to student unless it's the primary admin email
+        const adminEmail = "sunilsingh8896@gmail.com";
+        const isAdmin = loginEmail === adminEmail;
 
-      throw new Error("No profile found for this user. Please contact administrator.");
+        if (isAdmin) {
+          await setDoc(doc(db, "admins", user.uid), {
+            id: user.uid,
+            email: loginEmail,
+            name: name || "Primary Admin",
+            role: "admin"
+          });
+          toast({ title: "Admin Created", description: "Welcome to the Hub." });
+          router.push("/admin");
+        } else {
+          // For students, we expect the Admin to have created the record, 
+          // but for this prototype signup we'll create a basic profile.
+          await setDoc(doc(db, "students", user.uid), {
+            id: user.uid,
+            email: loginEmail,
+            name: name || "New Student",
+            regId: email.split("@")[0], // Use the prefix as regId
+            role: "student",
+            course: "General"
+          });
+          toast({ title: "Student Account Created", description: "Registration successful." });
+          router.push("/student");
+        }
+      } else {
+        // Login Logic
+        const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
+        const user = userCredential.user;
+
+        // The AuthProvider will handle routing based on firestore records
+        // but we'll do a quick check here for immediate feedback
+        const adminDoc = await getDoc(doc(db, "admins", user.uid));
+        if (adminDoc.exists()) {
+          router.push("/admin");
+          return;
+        }
+
+        const studentDoc = await getDoc(doc(db, "students", user.uid));
+        if (studentDoc.exists()) {
+          router.push("/student");
+          return;
+        }
+
+        // Special case for the first admin login if signup wasn't used
+        const adminEmail = "sunilsingh8896@gmail.com";
+        if (loginEmail === adminEmail) {
+          await setDoc(doc(db, "admins", user.uid), {
+            id: user.uid,
+            email: loginEmail,
+            name: "Sunil Singh",
+            role: "admin"
+          });
+          router.push("/admin");
+          return;
+        }
+
+        throw new Error("Profile not found. Please contact administrator.");
+      }
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Login Failed",
+        title: mode === "login" ? "Login Failed" : "Signup Failed",
         description: err.message,
       });
     } finally {
@@ -86,42 +132,65 @@ export default function LoginPage() {
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Session Conflict</AlertTitle>
-              <AlertDescription>Your account was logged in on another device. You have been disconnected.</AlertDescription>
+              <AlertDescription>Logged in elsewhere. This session was disconnected.</AlertDescription>
             </Alert>
           )}
-          <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="email@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-              />
-            </div>
-            <Button type="submit" className="w-full h-11 text-lg font-semibold" disabled={loading}>
-              {loading ? "Authenticating..." : "Login"}
-            </Button>
-          </form>
-          <div className="text-center text-xs text-muted-foreground pt-4">
-            Security enforced: One session per account. Inactivity timeout 60 mins.
-          </div>
+
+          <Tabs defaultValue="login" onValueChange={(v) => setMode(v as any)} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="login" className="flex items-center gap-2">
+                <LogIn className="h-4 w-4" /> Login
+              </TabsTrigger>
+              <TabsTrigger value="signup" className="flex items-center gap-2">
+                <UserPlus className="h-4 w-4" /> Sign Up
+              </TabsTrigger>
+            </TabsList>
+            
+            <form onSubmit={handleAuth} className="space-y-4" autoComplete="off">
+              {mode === "signup" && (
+                <div className="space-y-2">
+                  <Label htmlFor="name">Full Name</Label>
+                  <Input
+                    id="name"
+                    placeholder="Enter your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="identifier">{mode === "signup" ? "Email Address" : "Email or Registration ID"}</Label>
+                <Input
+                  id="identifier"
+                  type="text"
+                  placeholder={mode === "signup" ? "email@example.com" : "Registration ID or Email"}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full h-11 text-lg font-semibold" disabled={loading}>
+                {loading ? "Please wait..." : (mode === "login" ? "Login" : "Create Account")}
+              </Button>
+            </form>
+          </Tabs>
         </CardContent>
+        <CardFooter className="flex flex-col gap-2 text-center text-xs text-muted-foreground border-t pt-4">
+          <p>Security enforced: One session per account.</p>
+          <p>Registration ID login available for students.</p>
+        </CardFooter>
       </Card>
     </div>
   );

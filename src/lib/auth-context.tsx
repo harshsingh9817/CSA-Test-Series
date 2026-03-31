@@ -1,9 +1,10 @@
+
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "./firebase";
-import { doc, getDoc, setDoc, onSnapshot, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, onSnapshot, updateDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
@@ -44,12 +45,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setUserData(data);
           setUser(firebaseUser);
 
-          // Unique Session Check
+          // Session Tracking
           const sessionRef = doc(db, "userSessions", firebaseUser.uid);
           const deviceId = localStorage.getItem("quizmaster_device_id") || Math.random().toString(36).substring(7);
           localStorage.setItem("quizmaster_device_id", deviceId);
 
-          // Update or Create Session
           await setDoc(sessionRef, {
             id: firebaseUser.uid,
             userId: firebaseUser.uid,
@@ -58,7 +58,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             lastActivityTime: new Date().toISOString(),
             deviceInfo: navigator.userAgent,
             isActive: true,
-            // Keeping fields used by UI
             name: data.name || firebaseUser.email,
             email: firebaseUser.email,
             role: role,
@@ -67,7 +66,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             lastActive: Date.now(),
           }, { merge: true });
 
-          // Listen for session termination
+          // Listener for session invalidation (e.g. forced logout by admin)
           const sessionUnsub = onSnapshot(sessionRef, (docSnap) => {
             if (docSnap.exists() && !docSnap.data().isActive) {
               logout();
@@ -77,7 +76,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setLoading(false);
           return () => sessionUnsub();
         } else {
-          // If authenticated but no Firestore record, logout
+          // If no profile exists, sign out
           await signOut(auth);
           setUser(null);
           setUserData(null);
@@ -93,21 +92,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => unsubscribe();
   }, [router]);
 
-  // Activity & Auto-logout logic (1 hour)
+  // Inactivity tracking
   useEffect(() => {
     if (!user) return;
 
     const updateActivity = async () => {
-      const sessionRef = doc(db, "userSessions", user.uid);
-      await updateDoc(sessionRef, { 
-        lastActivityTime: new Date().toISOString(),
-        lastActive: Date.now() 
-      });
+      try {
+        const sessionRef = doc(db, "userSessions", user.uid);
+        await updateDoc(sessionRef, { 
+          lastActivityTime: new Date().toISOString(),
+          lastActive: Date.now() 
+        });
+      } catch (e) {
+        // Ignore minor update failures
+      }
     };
 
-    const handleInteraction = () => {
-      updateActivity();
-    };
+    const handleInteraction = () => updateActivity();
 
     window.addEventListener("mousemove", handleInteraction);
     window.addEventListener("keydown", handleInteraction);
@@ -117,13 +118,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const sessionRef = doc(db, "userSessions", user.uid);
       const snap = await getDoc(sessionRef);
       if (snap.exists()) {
-        const lastActive = snap.data().lastActive;
+        const lastActive = snap.data().lastActive || Date.now();
         const oneHour = 60 * 60 * 1000;
         if (Date.now() - lastActive > oneHour) {
           logout();
         }
       }
-    }, 60000); // Check every minute
+    }, 120000); // Check every 2 mins
 
     return () => {
       window.removeEventListener("mousemove", handleInteraction);
@@ -136,7 +137,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = async () => {
     if (user) {
       const sessionRef = doc(db, "userSessions", user.uid);
-      await updateDoc(sessionRef, { isActive: false });
+      try {
+        await updateDoc(sessionRef, { isActive: false });
+      } catch (e) {}
     }
     await signOut(auth);
     setUser(null);
