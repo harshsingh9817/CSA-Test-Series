@@ -1,3 +1,4 @@
+
 'use server';
 /**
  * @fileOverview This file contains the Genkit flow for analyzing question paper content from a GitHub JSON link.
@@ -72,10 +73,19 @@ const analyzeQuestionPaperContentFlow = ai.defineFlow(
   },
   async input => {
     let jsonContent: string;
+    let targetUrl = input.githubJsonLink;
+
+    // Transform GitHub URL to raw URL if needed
+    if (targetUrl.includes('github.com') && targetUrl.includes('/blob/')) {
+      targetUrl = targetUrl
+        .replace('github.com', 'raw.githubusercontent.com')
+        .replace('/blob/', '/');
+    }
+
     try {
-      const response = await fetch(input.githubJsonLink);
+      const response = await fetch(targetUrl);
       if (!response.ok) {
-        throw new Error(`Failed to fetch JSON from ${input.githubJsonLink}: ${response.statusText}`);
+        throw new Error(`Failed to fetch JSON from ${targetUrl}: ${response.statusText}`);
       }
       jsonContent = await response.text();
 

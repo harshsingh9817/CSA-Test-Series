@@ -29,16 +29,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
+    let unsubscribeSession: (() => void) | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (unsubscribeProfile) {
-        unsubscribeProfile();
-        unsubscribeProfile = null;
-      }
+      // Clean up previous listeners
+      if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribeSession) unsubscribeSession();
 
       if (firebaseUser) {
         setUser(firebaseUser);
         setLoading(true);
+
+        // Listen for session termination from Admin
+        const sessionRef = doc(db, "userSessions", firebaseUser.uid);
+        unsubscribeSession = onSnapshot(sessionRef, (snap) => {
+          if (snap.exists() && snap.data().isActive === false) {
+            // Session was terminated by admin
+            logout();
+          }
+        });
 
         // 1. Check admins collection first
         const adminRef = doc(db, "admins", firebaseUser.uid);
@@ -54,7 +63,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             if (email.toLowerCase().endsWith("@csa.com")) {
               const regId = email.split("@")[0].toUpperCase();
               const studentRef = doc(db, "student", regId);
-              // Set up listener for student profile
+              
               const unsubStudent = onSnapshot(studentRef, (studentSnap) => {
                 if (studentSnap.exists()) {
                   const data = { ...studentSnap.data(), role: "student", id: regId };
@@ -70,7 +79,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 setLoading(false);
               });
               
-              // Store this listener to clean up
               unsubscribeProfile = unsubStudent;
             } else {
               setUserData(null);
@@ -92,6 +100,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => {
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
+      if (unsubscribeSession) unsubscribeSession();
     };
   }, []);
 
@@ -117,8 +126,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const logout = async () => {
-    if (user) {
-      const sessionRef = doc(db, "userSessions", user.uid);
+    if (auth.currentUser) {
+      const sessionRef = doc(db, "userSessions", auth.currentUser.uid);
       try {
         await updateDoc(sessionRef, { isActive: false });
       } catch (e) {}
