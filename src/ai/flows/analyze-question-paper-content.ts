@@ -34,6 +34,7 @@ const AnalyzeQuestionPaperContentOutputSchema = z.object({
   summary: z
     .string()
     .describe('An overall summary of the question paper content and analysis.'),
+  questionCount: z.number().optional().describe('The number of questions identified.'),
 });
 export type AnalyzeQuestionPaperContentOutput = z.infer<
   typeof AnalyzeQuestionPaperContentOutputSchema
@@ -52,13 +53,8 @@ const analyzeQuestionPaperContentPrompt = ai.definePrompt({
 
 The JSON content will contain an array of questions. Each question might have various fields. Focus on the overall structure, content, and any potential issues that an administrator should be aware of for review.
 
-Provide your analysis in a JSON object that strictly conforms to the following schema. Ensure all fields are present, even if empty.
+Provide your analysis based on the following JSON content:
 
-\`\`\`json
-{{jsonSchema AnalyzeQuestionPaperContentOutputSchema}}
-\`\`\`
-
-Here is the JSON content:
 \`\`\`json
 {{{jsonContent}}}
 \`\`\`
@@ -82,6 +78,7 @@ const analyzeQuestionPaperContentFlow = ai.defineFlow(
         .replace('/blob/', '/');
     }
 
+    let parsedContent: any[] = [];
     try {
       const response = await fetch(targetUrl);
       if (!response.ok) {
@@ -90,31 +87,34 @@ const analyzeQuestionPaperContentFlow = ai.defineFlow(
       jsonContent = await response.text();
 
       // Basic validation: ensure it's parseable JSON and an array
-      const parsedContent = JSON.parse(jsonContent);
+      parsedContent = JSON.parse(jsonContent);
       if (!Array.isArray(parsedContent)) {
         throw new Error('Fetched content is not a JSON array.');
       }
       if (parsedContent.length === 0) {
-        // Handle empty array case for analysis
         return {
           topics: [],
           categories: [],
           formattingIssues: ['The provided JSON array is empty, contains no questions.'],
           summary: 'The question paper content is empty. No questions found for analysis.',
+          questionCount: 0,
         };
       }
     } catch (error: any) {
-      // If fetching or parsing fails, return an analysis noting the error
       return {
         topics: [],
         categories: [],
         formattingIssues: [`Error fetching or parsing JSON: ${error.message}`],
         summary: `Failed to analyze question paper content due to an error: ${error.message}`,
+        questionCount: 0,
       };
     }
 
     const {output} = await analyzeQuestionPaperContentPrompt({jsonContent: jsonContent});
-    return output!;
+    return {
+      ...output!,
+      questionCount: parsedContent.length,
+    };
   }
 );
 

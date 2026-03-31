@@ -52,31 +52,31 @@ export default function PaperManager() {
   const handleAddPaper = async () => {
     if (!paperName || !githubLink) return;
     setLoading(true);
+    setAnalyzing(true);
 
     const rawUrl = getRawGithubUrl(githubLink);
 
     try {
-      const res = await fetch(rawUrl);
-      if (!res.ok) throw new Error(`Could not fetch JSON (Status: ${res.status}). Ensure the URL is public.`);
-      const questions = await res.json();
-      
-      if (!Array.isArray(questions)) throw new Error("Invalid format: The file must contain a JSON array of questions.");
-
-      setAnalyzing(true);
+      // We offload both fetching and analysis to the server flow to avoid client-side CORS issues
       const aiResults = await analyzeQuestionPaperContent({ githubJsonLink: rawUrl });
+      
+      if (aiResults.questionCount === 0 && aiResults.formattingIssues.length > 0) {
+        throw new Error(aiResults.formattingIssues[0]);
+      }
+
       setAnalysis(aiResults);
 
       await addDoc(collection(db, "papers"), {
         name: paperName,
         url: rawUrl,
-        count: questions.length,
+        count: aiResults.questionCount || 0,
         createdAt: Date.now(),
         topics: aiResults.topics || [],
         categories: aiResults.categories || [],
         summary: aiResults.summary || ""
       });
 
-      toast({ title: "Paper Imported Successfully", description: `${paperName} with ${questions.length} questions is now live.` });
+      toast({ title: "Paper Imported Successfully", description: `${paperName} with ${aiResults.questionCount} questions is now live.` });
       setPaperName("");
       setGithubLink("");
     } catch (err: any) {
