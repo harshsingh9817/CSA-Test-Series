@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Flag } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Flag, Loader2 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 
@@ -46,7 +46,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
-        // Fetch user progress to exclude completed questions from /student/{regId}/progress/{paperId}
+        // Fetch user progress
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const completedIndices = new Set<number>();
         progressSnap.forEach(doc => {
@@ -55,24 +55,38 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
         // Fetch JSON Questions
         const res = await fetch(paperData.url);
-        const allQuestions = await res.json();
+        if (!res.ok) throw new Error("Failed to fetch questions");
+        const allQuestionsRaw = await res.json();
+
+        // Normalize questions (handle option1 vs optionA)
+        const allQuestions = allQuestionsRaw.map((q: any, originalIndex: number) => {
+          return {
+            ...q,
+            originalIndex,
+            // Normalize options to A, B, C, D
+            optA: q.optionA || q.option1 || q.opt1 || "",
+            optB: q.optionB || q.option2 || q.opt2 || "",
+            optC: q.optionC || q.option3 || q.opt3 || "",
+            optD: q.optionD || q.option4 || q.opt4 || "",
+            // Normalize answer mapping if it's numeric 1-4
+            correctAnswer: q.answer === "1" ? "A" : q.answer === "2" ? "B" : q.answer === "3" ? "C" : q.answer === "4" ? "D" : q.answer
+          };
+        });
 
         // Filter uncompleted questions
-        let availableQuestions = allQuestions
-          .map((q: any, originalIndex: number) => ({ ...q, originalIndex }))
-          .filter((q: any) => !completedIndices.has(q.originalIndex));
+        let availableQuestions = allQuestions.filter((q: any) => !completedIndices.has(q.originalIndex));
 
         // If paper completed, reset for retake
         if (availableQuestions.length === 0) {
-          availableQuestions = allQuestions.map((q: any, originalIndex: number) => ({ ...q, originalIndex }));
+          availableQuestions = allQuestions;
         }
 
-        // Subset of 100 questions or all if less than 100
-        const quizSubset = availableQuestions.slice(0, 100);
-        setQuestions(quizSubset);
+        // Limit to 100 questions for performance
+        setQuestions(availableQuestions.slice(0, 100));
         setLoading(false);
       } catch (err: any) {
-        toast({ variant: "destructive", title: "Error", description: "Failed to load quiz questions." });
+        console.error("Quiz load error:", err);
+        toast({ variant: "destructive", title: "Error", description: "Failed to load quiz questions. Please check the JSON format." });
         router.push("/student");
       }
     };
@@ -95,7 +109,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   const handleSubmit = async () => {
     let correct = 0;
     questions.forEach((q, idx) => {
-      if (answers[idx] === q.answer) {
+      if (answers[idx] === q.correctAnswer) {
         correct++;
       }
     });
@@ -106,7 +120,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     if (!userData?.regId) return;
 
     try {
-      // Save progress to /student/{regId}/progress/{paperId}/history
       const completedIndices = questions.map(q => q.originalIndex);
       await addDoc(collection(db, "student", userData.regId, "progress", paperId, "history"), {
         score: correct,
@@ -123,8 +136,8 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center">
-        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-        <p className="text-primary font-medium">Preparing your questions...</p>
+        <Loader2 className="w-10 h-10 border-primary animate-spin mx-auto mb-4 text-primary" />
+        <p className="text-primary font-medium">Preparing your exam paper...</p>
       </div>
     </div>
   );
@@ -158,17 +171,17 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <header className="bg-white border-b py-4">
+      <header className="bg-white border-b py-4 shadow-sm sticky top-0 z-20">
         <div className="container mx-auto px-4 flex items-center justify-between">
           <Button variant="ghost" onClick={() => router.push("/student")} className="gap-2">
-            <ChevronLeft className="h-4 w-4" /> Back to Portal
+            <ChevronLeft className="h-4 w-4" /> Back
           </Button>
           <div className="text-center hidden sm:block">
-            <h1 className="font-bold font-headline">{paper?.name}</h1>
-            <p className="text-xs text-muted-foreground">Question {currentIndex + 1} of {questions.length}</p>
+            <h1 className="font-bold font-headline truncate max-w-[200px]">{paper?.name}</h1>
+            <p className="text-xs text-muted-foreground">Q. {currentIndex + 1} of {questions.length}</p>
           </div>
-          <Button variant="outline" className="text-destructive border-destructive/20" onClick={handleSubmit}>
-            Finish Quiz
+          <Button variant="outline" size="sm" className="text-destructive border-destructive/20" onClick={handleSubmit}>
+            Finish
           </Button>
         </div>
         <div className="container mx-auto px-4 mt-4">
@@ -177,35 +190,44 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
       </header>
 
       <main className="flex-1 container mx-auto px-4 py-8 max-w-3xl">
-        <Card className="shadow-lg border-none">
-          <CardHeader className="border-b bg-muted/20">
+        <Card className="shadow-lg border-none overflow-hidden">
+          <CardHeader className="border-b bg-muted/20 pb-8">
             <div className="flex justify-between items-start">
-              <Badge variant="outline" className="mb-2">Q. {currentIndex + 1}</Badge>
-              <Button variant="ghost" size="icon" className="text-muted-foreground">
+              <Badge variant="outline" className="mb-4">Question {currentIndex + 1}</Badge>
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
                 <Flag className="h-4 w-4" />
               </Button>
             </div>
-            <CardTitle className="text-xl font-medium leading-relaxed">
+            <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed">
               {currentQ?.question}
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-8 pb-12">
+          <CardContent className="pt-8 pb-12 space-y-4">
             <RadioGroup 
               value={answers[currentIndex] || ""} 
               onValueChange={(val) => setAnswers(prev => ({ ...prev, [currentIndex]: val }))}
-              className="space-y-4"
+              className="grid grid-cols-1 gap-4"
             >
-              {['A', 'B', 'C', 'D'].map((opt) => (
-                <div key={opt} className={`flex items-center space-x-3 p-4 rounded-xl border-2 transition-all cursor-pointer hover:bg-primary/5 ${answers[currentIndex] === opt ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-muted hover:border-primary/30'}`}>
-                  <RadioGroupItem value={opt} id={`opt-${opt}`} className="sr-only" />
+              {[
+                { id: "A", label: currentQ.optA },
+                { id: "B", label: currentQ.optB },
+                { id: "C", label: currentQ.optC },
+                { id: "D", label: currentQ.optD },
+              ].map((opt) => (
+                <div 
+                  key={opt.id} 
+                  onClick={() => setAnswers(prev => ({ ...prev, [currentIndex]: opt.id }))}
+                  className={`flex items-center space-x-3 p-4 rounded-xl border-2 transition-all cursor-pointer ${answers[currentIndex] === opt.id ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-muted hover:border-primary/30'}`}
+                >
+                  <RadioGroupItem value={opt.id} id={`opt-${opt.id}`} className="sr-only" />
+                  <div className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shrink-0 transition-colors ${answers[currentIndex] === opt.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
+                    {opt.id}
+                  </div>
                   <Label 
-                    htmlFor={`opt-${opt}`} 
-                    className="flex-1 cursor-pointer font-medium flex gap-4"
+                    htmlFor={`opt-${opt.id}`} 
+                    className="flex-1 cursor-pointer font-medium text-base md:text-lg leading-snug"
                   >
-                    <span className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm transition-colors ${answers[currentIndex] === opt ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
-                      {opt}
-                    </span>
-                    <span className="flex-1 py-1">{currentQ[`option${opt}` as keyof any]}</span>
+                    {opt.label}
                   </Label>
                 </div>
               ))}
@@ -221,19 +243,19 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             disabled={currentIndex === 0}
             className="w-32 gap-2"
           >
-            <ArrowLeft className="h-4 w-4" /> Previous
+            <ArrowLeft className="h-4 w-4" /> Prev
           </Button>
           
-          <div className="text-sm font-medium text-muted-foreground">
+          <div className="text-sm font-bold bg-muted px-4 py-2 rounded-full">
             {currentIndex + 1} / {questions.length}
           </div>
 
           {currentIndex === questions.length - 1 ? (
-            <Button size="lg" className="w-32 bg-secondary hover:bg-secondary/90 text-white" onClick={handleSubmit}>
-              Submit Quiz
+            <Button size="lg" className="w-32 bg-secondary hover:bg-secondary/90 text-white font-bold" onClick={handleSubmit}>
+              Finish
             </Button>
           ) : (
-            <Button size="lg" onClick={handleNext} className="w-32 gap-2">
+            <Button size="lg" onClick={handleNext} className="w-32 gap-2 font-bold">
               Next <ArrowRight className="h-4 w-4" />
             </Button>
           )}

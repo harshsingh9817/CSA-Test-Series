@@ -19,7 +19,7 @@ export default function ActiveSessions() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Only show sessions that are explicitly active
+    // Real-time listener for active sessions
     const q = query(collection(db, "userSessions"), where("isActive", "==", true));
     
     const unsub = onSnapshot(q, (snapshot) => {
@@ -27,6 +27,9 @@ export default function ActiveSessions() {
       setSessions(list);
       setLoading(false);
       setRefreshing(false);
+    }, (error) => {
+      console.error("Sessions listener error:", error);
+      setLoading(false);
     });
     return () => unsub();
   }, []);
@@ -36,28 +39,30 @@ export default function ActiveSessions() {
     setTimeout(() => setRefreshing(false), 500);
   };
 
-  const terminateSession = async (id: string, name: string) => {
+  const terminateSession = async (uid: string, name: string) => {
+    if (!uid) return;
+    
     if (confirm(`Force logout ${name}?`)) {
-      setTerminatingId(id);
+      setTerminatingId(uid);
       try {
-        const sessionRef = doc(db, "userSessions", id);
-        // Force update the document to set isActive to false
+        const sessionRef = doc(db, "userSessions", uid);
         await updateDoc(sessionRef, { 
           isActive: false, 
           lastActive: Date.now(),
-          terminatedAt: new Date().toISOString()
+          terminatedAt: new Date().toISOString(),
+          status: "terminated"
         });
         
         toast({ 
           title: "Session Terminated", 
-          description: `${name} has been forced to log out.` 
+          description: `${name} has been disconnected.` 
         });
       } catch (err: any) {
         console.error("Termination failed:", err);
         toast({ 
           variant: "destructive",
           title: "Action Failed", 
-          description: "Could not terminate session. Check permissions." 
+          description: "Permissions issue or session record error." 
         });
       } finally {
         setTerminatingId(null);
@@ -73,7 +78,7 @@ export default function ActiveSessions() {
             <ShieldAlert className="h-5 w-5 text-secondary" />
             <CardTitle>Active User Sessions</CardTitle>
           </div>
-          <CardDescription>Live monitoring of active students and administrators.</CardDescription>
+          <CardDescription>Monitor and manage currently logged-in users.</CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
@@ -95,15 +100,15 @@ export default function ActiveSessions() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                     <Loader2 className="animate-spin h-5 w-5 mx-auto mb-2" />
-                    Tracking active users...
+                    Checking for active users...
                   </TableCell>
                 </TableRow>
               ) : sessions.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                    No active sessions currently.
+                    No active sessions found.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -116,7 +121,7 @@ export default function ActiveSessions() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2 text-xs max-w-xs">
+                      <div className="flex items-center gap-2 text-xs max-w-[200px]">
                         <Monitor className="h-3 w-3 shrink-0" />
                         <span className="truncate" title={session.deviceInfo}>{session.deviceInfo}</span>
                       </div>

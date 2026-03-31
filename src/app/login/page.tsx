@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from "react";
@@ -33,11 +34,11 @@ export default function LoginPage() {
         loginEmail = `${loginEmail.toLowerCase()}@csa.com`;
       }
 
-      // 1. Authenticate
+      // 1. Authenticate with Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
       const user = userCredential.user;
 
-      // 2. Primary Admin Bootstrap
+      // 2. Critical: Ensure Admin Bootstrap for primary owner
       const primaryAdminEmail = "sunilsingh8896@gmail.com";
       if (loginEmail.toLowerCase() === primaryAdminEmail.toLowerCase()) {
         try {
@@ -53,20 +54,20 @@ export default function LoginPage() {
             });
           }
         } catch (rulesError) {
-          console.warn("Bootstrap sync error - usually handled by rules:", rulesError);
+          console.warn("Admin bootstrap warning:", rulesError);
         }
         router.push("/admin");
         return;
       }
 
-      // 3. Check Admin/Student after Auth
+      // 3. Normal redirect (handled by AuthProvider listener)
       router.push("/");
     } catch (err: any) {
       console.error("Login attempt failed:", err);
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        setErrorMessage("Invalid ID or Password. Ensure your account has been created by an administrator.");
+        setErrorMessage("Invalid credentials. Please contact your administrator if you cannot log in.");
       } else if (err.code === 'permission-denied') {
-        setErrorMessage("Access Denied. Your profile could not be verified by the database.");
+        setErrorMessage("Access Denied. Database permissions issue.");
       } else {
         setErrorMessage(err.message || "A connection error occurred.");
       }
@@ -85,19 +86,19 @@ export default function LoginPage() {
             </div>
           </div>
           <CardTitle className="text-2xl font-black font-headline text-primary">CSA QUIZMASTER</CardTitle>
-          <CardDescription className="font-medium">Secure Learning Gateway</CardDescription>
+          <CardDescription className="font-medium">Secure Assessment Gateway</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {errorMessage && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Login Issue</AlertTitle>
+              <AlertTitle>Login Error</AlertTitle>
               <AlertDescription className="text-xs">{errorMessage}</AlertDescription>
             </Alert>
           )}
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="identifier" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">ID / Email</Label>
+              <Label htmlFor="identifier" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reg ID / Email</Label>
               <Input
                 id="identifier"
                 placeholder="e.g. ST101"
@@ -109,7 +110,7 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" title="Password provided by Admin" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Security Password</Label>
+              <Label htmlFor="password" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Password</Label>
               <Input
                 id="password"
                 type="password"
@@ -129,9 +130,9 @@ export default function LoginPage() {
         <CardFooter className="flex flex-col gap-3 text-center text-xs text-muted-foreground border-t pt-6">
           <div className="flex items-center justify-center gap-1.5 text-primary font-bold">
             <ShieldCheck className="h-4 w-4" />
-            <span>AUTHENTICATED ACCESS ONLY</span>
+            <span>PROTECTED SYSTEM</span>
           </div>
-          <p>Accounts managed by Admin. Public registration is disabled.</p>
+          <p>Registration is managed by CSA Administrators only.</p>
         </CardFooter>
       </Card>
       
