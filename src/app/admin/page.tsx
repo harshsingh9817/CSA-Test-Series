@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
@@ -9,10 +9,29 @@ import { Button } from "@/components/ui/button";
 import StudentManager from "@/components/admin/StudentManager";
 import ActiveSessions from "@/components/admin/ActiveSessions";
 import PaperManager from "@/components/admin/PaperManager";
+import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
-  const { userData, logout } = useAuth();
+  const { userData, loading, logout } = useAuth();
   const [activeTab, setActiveTab] = useState("students");
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && (!userData || userData.role !== "admin")) {
+      router.push("/login");
+    }
+  }, [userData, loading, router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-primary font-medium">Loading Administrator Panel...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!userData || userData.role !== "admin") {
     return null;

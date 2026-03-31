@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "./firebase";
-import { doc, getDoc, setDoc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
@@ -27,51 +27,71 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubscribeProfile: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      // Clean up previous profile listener if it exists
+      if (unsubscribeProfile) {
+        unsubscribeProfile();
+        unsubscribeProfile = null;
+      }
+
       if (firebaseUser) {
         setUser(firebaseUser);
-        
-        // Try to fetch profile
-        try {
-          // Check Admin collection first
-          let userDoc = await getDoc(doc(db, "admins", firebaseUser.uid));
-          let role = "admin";
+        setLoading(true);
 
-          if (!userDoc.exists()) {
-            // Then check Student collection
-            userDoc = await getDoc(doc(db, "students", firebaseUser.uid));
-            role = "student";
-          }
-
-          if (userDoc.exists()) {
-            const data = { ...userDoc.data(), role, id: firebaseUser.uid };
-            setUserData(data);
-
-            // Session Tracking
+        // First, check the admins collection
+        const adminRef = doc(db, "admins", firebaseUser.uid);
+        unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
+          if (adminSnap.exists()) {
+            setUserData({ ...adminSnap.data(), role: "admin", id: firebaseUser.uid });
+            setLoading(false);
+            
+            // Sync Session
             const sessionRef = doc(db, "userSessions", firebaseUser.uid);
-            await setDoc(sessionRef, {
+            setDoc(sessionRef, {
               id: firebaseUser.uid,
               userId: firebaseUser.uid,
-              userType: role,
+              userType: "admin",
               loginTime: new Date().toISOString(),
               lastActivityTime: new Date().toISOString(),
               deviceInfo: navigator.userAgent,
               isActive: true,
-              name: data.name || firebaseUser.email,
+              name: adminSnap.data().name || firebaseUser.email,
               email: firebaseUser.email,
-              role: role,
+              role: "admin",
               lastActive: Date.now(),
             }, { merge: true });
           } else {
-            // Profile doesn't exist yet, but don't force sign out here
-            // Let the LoginPage handle bootstrapping
-            setUserData(null);
+            // If not an admin, check the students collection
+            const studentRef = doc(db, "students", firebaseUser.uid);
+            // We need a second nested listener or a more complex approach, but for simplicity:
+            onSnapshot(studentRef, (studentSnap) => {
+              if (studentSnap.exists()) {
+                setUserData({ ...studentSnap.data(), role: "student", id: firebaseUser.uid });
+                
+                // Sync Session for Student
+                const sessionRef = doc(db, "userSessions", firebaseUser.uid);
+                setDoc(sessionRef, {
+                  id: firebaseUser.uid,
+                  userId: firebaseUser.uid,
+                  userType: "student",
+                  loginTime: new Date().toISOString(),
+                  lastActivityTime: new Date().toISOString(),
+                  deviceInfo: navigator.userAgent,
+                  isActive: true,
+                  name: studentSnap.data().name || firebaseUser.email,
+                  email: firebaseUser.email,
+                  role: "student",
+                  lastActive: Date.now(),
+                }, { merge: true });
+              } else {
+                setUserData(null);
+              }
+              setLoading(false);
+            });
           }
-        } catch (error) {
-          console.error("Auth context error:", error);
-        } finally {
-          setLoading(false);
-        }
+        });
       } else {
         setUser(null);
         setUserData(null);
@@ -79,7 +99,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
   }, []);
 
   const logout = async () => {
