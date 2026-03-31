@@ -1,0 +1,125 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * FIRESTORE SECURITY RULES - PROTOTYPING MODE
+     * 
+     * Core Philosophy:
+     * This ruleset enforces a strict identity-based authorization model while remaining flexible on 
+     * data schema to support rapid development. Access is primarily controlled via Path-Based 
+     * Ownership and Role-Based Access Control (RBAC) via an 'admins' collection.
+     * 
+     * Data Structure:
+     * - /students/{studentId}: User profiles where studentId is the Firebase Auth UID.
+     * - /admins/{adminId}: Admin profiles where adminId is the Firebase Auth UID.
+     * - /userSessions/{sessionId}: Global session tracking, searchable by Admins.
+     * - /questionPapers/{paperId}: Global quiz metadata.
+     * - /users/{studentId}/studentPaperProgress/{progressId}: Private subcollection for quiz tracking.
+     * 
+     * Key Security Decisions:
+     * 1. Global Admin Check: An 'isAdmin' helper function checks for the existence of a document 
+     *    in the /admins collection matching the user's UID.
+     * 2. Path-Based Ownership: Users (students and admins) are granted primary access to documents 
+     *    where the document ID or a path parameter matches their UID.
+     * 3. Denormalization for Authorization: Essential fields like 'userId' or 'studentId' are 
+     *    expected within documents to allow rules to verify ownership without extra database lookups.
+     * 4. Relational Integrity: On creation of user-scoped data, the rules verify that internal 
+     *    ID fields match the path parameters.
+     */
+
+    // --- Helper Functions ---
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Used for updates/deletes to ensure document existence and ownership.
+    function isExistingOwner(userId) {
+      return resource != null && isOwner(userId);
+    }
+
+    // --- Collection Rules ---
+
+    /**
+     * @description Rules for the Student profiles. Allows students to manage their own data and admins to manage all students.
+     * @path /students/{studentId}
+     * @allow (get) If the user is the owner of the profile or an admin.
+     * @allow (create) If the user is creating their own profile (ID matches UID) or is an admin.
+     * @deny (list) If the user is not an admin.
+     * @principle Enforces path-based ownership for profile management.
+     */
+    match /students/{studentId} {
+      allow get: if isOwner(studentId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if (isOwner(studentId) && request.resource.data.id == studentId) || isAdmin();
+      allow update: if (isExistingOwner(studentId) && request.resource.data.id == studentId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    /**
+     * @description Rules for Admin user profiles. Restricted to admins only.
+     * @path /admins/{adminId}
+     * @allow (get) If the user is the owner (admin) or another admin.
+     * @allow (list) If the user is an admin.
+     * @deny (write) If the user is not an admin.
+     * @principle Restricts administrative control to the admin role.
+     */
+    match /admins/{adminId} {
+      allow get: if isOwner(adminId) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * @description Tracks active user sessions. Users manage their own sessions, admins can monitor all.
+     * @path /userSessions/{sessionId}
+     * @allow (get) If the user owns the session (checked via userId field) or is an admin.
+     * @allow (create) If the authenticated user is the one associated with the session data.
+     * @deny (list) For non-admin users to prevent session scanning.
+     * @principle Uses denormalized 'userId' for authorization independence.
+     */
+    match /userSessions/{sessionId} {
+      allow get: if (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if (resource != null && resource.data.userId == request.auth.uid) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    /**
+     * @description Question paper metadata. Publicly readable by all users, writable only by admins.
+     * @path /questionPapers/{paperId}
+     * @allow (get, list) For any authenticated user.
+     * @allow (write) For admins only.
+     * @principle Global read access for shared resources with admin-only controls.
+     */
+    match /questionPapers/{paperId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * @description Tracks quiz progress for a specific student. Nested under a user path for clear ownership.
+     * @path /users/{studentId}/studentPaperProgress/{progressId}
+     * @allow (get, list) If the student matches the path parameter or the user is an admin.
+     * @allow (create, update) If the student matches the path parameter.
+     * @deny (delete) If the user is neither the owner nor an admin.
+     * @principle Implements path-based ownership for nested user data.
+     */
+    match /users/{studentId}/studentPaperProgress/{progressId} {
+      allow get, list: if isOwner(studentId) || isAdmin();
+      allow create: if isOwner(studentId) && request.resource.data.studentId == studentId;
+      allow update: if isExistingOwner(studentId) && request.resource.data.studentId == studentId;
+      allow delete: if isExistingOwner(studentId) || isAdmin();
+    }
+  }
+}
