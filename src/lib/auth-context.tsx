@@ -25,6 +25,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [forceLogoutHandled, setForceLogoutHandled] = useState(false);
   const router = useRouter();
 
   const logout = async () => {
@@ -34,7 +35,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         await updateDoc(sessionRef, { isActive: false, lastActive: Date.now() });
       } catch (e) {
-        console.warn("Could not deactivate session on logout:", e);
+        // Normal error if already logged out or permission lost
       }
     }
     await signOut(auth);
@@ -61,14 +62,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         unsubscribeSession = onSnapshot(sessionRef, (snap) => {
           if (snap.exists()) {
             const sessionData = snap.data();
-            if (sessionData.isActive === false) {
-              console.log("Session terminated by administrator.");
+            if (sessionData.isActive === false && !forceLogoutHandled) {
+              setForceLogoutHandled(true);
               logout();
+              alert("Your session has been terminated by an administrator.");
             }
           }
         });
 
-        // 1. Check admins collection
+        // Check admins collection
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
@@ -77,7 +79,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setLoading(false);
             syncSession(firebaseUser.uid, "admin", data.name, firebaseUser.email);
           } else {
-            // 2. Check student collection (matching regId@csa.com)
+            // Check student collection (matching regId@csa.com)
             const email = firebaseUser.email || "";
             if (email.toLowerCase().endsWith("@csa.com")) {
               const regId = email.split("@")[0].toUpperCase();
@@ -113,6 +115,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(null);
         setUserData(null);
         setLoading(false);
+        setForceLogoutHandled(false);
       }
     });
 

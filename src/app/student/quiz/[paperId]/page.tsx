@@ -6,12 +6,12 @@ import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, collection, addDoc, getDocs } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Flag, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Flag, Loader2, Trophy, Target, XCircle, Info } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 
@@ -27,7 +27,15 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
   const [submitted, setSubmitted] = useState(false);
-  const [score, setScore] = useState(0);
+  
+  // Detailed Results State
+  const [results, setResults] = useState({
+    correct: 0,
+    attempted: 0,
+    incorrect: 0,
+    total: 0,
+    percentage: 0
+  });
 
   useEffect(() => {
     if (!user || !userData || userData.role !== "student") return;
@@ -46,19 +54,22 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
-        // Fetch user progress
+        // Fetch user progress (all unique completed indices)
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const completedIndices = new Set<number>();
         progressSnap.forEach(doc => {
-          doc.data().completedIndices?.forEach((idx: number) => completedIndices.add(idx));
+          const data = doc.data();
+          if (data.completedIndices) {
+            data.completedIndices.forEach((idx: number) => completedIndices.add(idx));
+          }
         });
 
-        // Fetch JSON Questions
+        // Fetch Questions
         const res = await fetch(paperData.url);
         if (!res.ok) throw new Error("Failed to fetch questions");
         const allQuestionsRaw = await res.json();
 
-        // Normalize questions (handle bilingual nested format and legacy flat format)
+        // Normalize questions
         const allQuestions = allQuestionsRaw.map((q: any, originalIndex: number) => {
           const isBilingual = q.question_en && q.options;
           
@@ -73,19 +84,20 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           };
         });
 
-        // Filter uncompleted questions
-        let availableQuestions = allQuestions.filter((q: any) => !completedIndices.has(q.originalIndex));
+        // Filter out already completed questions
+        let remainingQuestions = allQuestions.filter((q: any) => !completedIndices.has(q.originalIndex));
 
-        // If paper completed, reset for retake
-        if (availableQuestions.length === 0) {
-          availableQuestions = allQuestions;
+        // If paper is fully completed, reset it for a fresh take
+        if (remainingQuestions.length === 0) {
+          remainingQuestions = allQuestions;
         }
 
-        setQuestions(availableQuestions.slice(0, 100));
+        // Limit to 100 for performance, but usually it will be whatever is left
+        setQuestions(remainingQuestions.slice(0, 100));
         setLoading(false);
       } catch (err: any) {
         console.error("Quiz load error:", err);
-        toast({ variant: "destructive", title: "Error", description: "Failed to load quiz questions. Please check the JSON format." });
+        toast({ variant: "destructive", title: "Error", description: "Failed to load quiz questions." });
         router.push("/student");
       }
     };
@@ -107,26 +119,45 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
   const handleSubmit = async () => {
     let correct = 0;
+    let attempted = 0;
+    
     questions.forEach((q, idx) => {
-      if (answers[idx] === q.correctAnswer) {
-        correct++;
+      if (answers[idx]) {
+        attempted++;
+        if (answers[idx] === q.correctAnswer) {
+          correct++;
+        }
       }
     });
 
-    setScore(correct);
+    const incorrect = attempted - correct;
+    const percentage = questions.length > 0 ? (correct / questions.length) * 100 : 0;
+
+    setResults({
+      correct,
+      attempted,
+      incorrect,
+      total: questions.length,
+      percentage: Math.round(percentage)
+    });
+
     setSubmitted(true);
 
     if (!userData?.regId) return;
 
     try {
+      // Save only the questions that were part of this specific session
       const completedIndices = questions.map(q => q.originalIndex);
+      
       await addDoc(collection(db, "student", userData.regId, "progress", paperId, "history"), {
         score: correct,
         total: questions.length,
+        attempted: attempted,
         completedIndices: completedIndices,
         timestamp: Date.now()
       });
-      toast({ title: "Quiz Submitted", description: `You scored ${correct}/${questions.length}` });
+      
+      toast({ title: "Result Saved", description: `You answered ${correct} correctly.` });
     } catch (err) {
       console.error("Failed to save progress", err);
     }
@@ -142,26 +173,67 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   );
 
   if (submitted) return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-lg shadow-xl border-t-8 border-t-primary">
-        <CardHeader className="text-center">
+    <div className="min-h-screen bg-background p-4 flex flex-col items-center justify-center">
+      <Card className="w-full max-w-2xl shadow-2xl border-t-8 border-t-primary overflow-hidden">
+        <CardHeader className="text-center bg-primary/5 pb-8 pt-10">
           <div className="flex justify-center mb-4">
-            <CheckCircle2 className="h-16 w-16 text-secondary" />
+            <div className="p-4 bg-white rounded-full shadow-md">
+              <Trophy className="h-12 w-12 text-yellow-500" />
+            </div>
           </div>
-          <CardTitle className="text-3xl font-bold font-headline">Quiz Completed!</CardTitle>
-          <CardDescription className="text-lg">Paper: {paper?.name}</CardDescription>
+          <CardTitle className="text-3xl font-black font-headline text-primary">Examination Result</CardTitle>
+          <CardDescription className="text-base font-medium mt-2">
+            Paper: <span className="text-foreground font-bold">{paper?.name}</span>
+          </CardDescription>
+          <div className="mt-2 text-sm font-bold text-primary bg-primary/10 inline-block px-4 py-1 rounded-full">
+            Candidate: {userData?.name}
+          </div>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="bg-primary/5 p-8 rounded-2xl border border-primary/10 text-center">
-            <p className="text-sm uppercase tracking-widest text-muted-foreground mb-1">Your Final Score</p>
-            <div className="text-6xl font-black text-primary">{score} <span className="text-2xl font-normal text-muted-foreground">/ {questions.length}</span></div>
-            <p className="mt-4 text-sm font-medium text-primary">Progress has been saved to your profile.</p>
+        <CardContent className="p-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="bg-muted/30 p-4 rounded-xl text-center border">
+              <Target className="h-5 w-5 mx-auto mb-2 text-blue-500" />
+              <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-tighter">Total Questions</p>
+              <p className="text-2xl font-black">{results.total}</p>
+            </div>
+            <div className="bg-muted/30 p-4 rounded-xl text-center border">
+              <Info className="h-5 w-5 mx-auto mb-2 text-gray-500" />
+              <p className="text-[10px] uppercase font-bold text-muted-foreground tracking-tighter">Attempted</p>
+              <p className="text-2xl font-black">{results.attempted}</p>
+            </div>
+            <div className="bg-green-50 p-4 rounded-xl text-center border border-green-100">
+              <CheckCircle2 className="h-5 w-5 mx-auto mb-2 text-green-500" />
+              <p className="text-[10px] uppercase font-bold text-green-700 tracking-tighter">Correct</p>
+              <p className="text-2xl font-black text-green-600">{results.correct}</p>
+            </div>
+            <div className="bg-red-50 p-4 rounded-xl text-center border border-red-100">
+              <XCircle className="h-5 w-5 mx-auto mb-2 text-red-500" />
+              <p className="text-[10px] uppercase font-bold text-red-700 tracking-tighter">Incorrect</p>
+              <p className="text-2xl font-black text-red-600">{results.incorrect}</p>
+            </div>
           </div>
-          <Button className="w-full h-12 text-lg" onClick={() => router.push("/student")}>
-            Return to Dashboard
-          </Button>
+
+          <div className="space-y-4">
+            <div className="flex justify-between items-end">
+              <p className="text-sm font-bold text-muted-foreground">Overall Performance</p>
+              <p className="text-3xl font-black text-primary">{results.percentage}%</p>
+            </div>
+            <Progress value={results.percentage} className="h-4 rounded-full" />
+            <p className="text-xs text-center text-muted-foreground italic">
+              {results.percentage >= 60 ? "Excellent work! You have shown great command over the subject." : "Keep practicing! Every attempt is a step closer to mastery."}
+            </p>
+          </div>
         </CardContent>
+        <CardFooter className="bg-muted/10 p-6 flex flex-col sm:flex-row gap-4">
+          <Button className="w-full h-12 font-bold text-lg" onClick={() => router.push("/student")}>
+            Back to Dashboard
+          </Button>
+          <Button variant="outline" className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
+            Retake Remaining
+          </Button>
+        </CardFooter>
       </Card>
+      <p className="mt-8 text-xs text-muted-foreground">Detailed history is available in your student profile records.</p>
     </div>
   );
 
@@ -173,14 +245,14 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
       <header className="bg-white border-b py-4 shadow-sm sticky top-0 z-20">
         <div className="container mx-auto px-4 flex items-center justify-between">
           <Button variant="ghost" onClick={() => router.push("/student")} className="gap-2">
-            <ChevronLeft className="h-4 w-4" /> Back
+            <ChevronLeft className="h-4 w-4" /> Exit
           </Button>
           <div className="text-center hidden sm:block">
             <h1 className="font-bold font-headline truncate max-w-[200px]">{paper?.name}</h1>
-            <p className="text-xs text-muted-foreground">Q. {currentIndex + 1} of {questions.length}</p>
+            <p className="text-xs text-muted-foreground">Question {currentIndex + 1} of {questions.length}</p>
           </div>
-          <Button variant="outline" size="sm" className="text-destructive border-destructive/20" onClick={handleSubmit}>
-            Finish
+          <Button variant="default" size="sm" className="bg-secondary hover:bg-secondary/90 text-white font-bold" onClick={handleSubmit}>
+            Finish & Submit
           </Button>
         </div>
         <div className="container mx-auto px-4 mt-4">
@@ -192,10 +264,8 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         <Card className="shadow-lg border-none overflow-hidden">
           <CardHeader className="border-b bg-muted/20 pb-8">
             <div className="flex justify-between items-start">
-              <Badge variant="outline" className="mb-4">Question {currentIndex + 1}</Badge>
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
-                <Flag className="h-4 w-4" />
-              </Button>
+              <Badge variant="secondary" className="mb-4">Section: {currentQ?.topic || "General"}</Badge>
+              <span className="text-xs font-mono text-muted-foreground">ID: #{currentQ?.originalIndex}</span>
             </div>
             <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed">
               {currentQ?.question}
@@ -216,7 +286,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
                 <div 
                   key={opt.id} 
                   onClick={() => setAnswers(prev => ({ ...prev, [currentIndex]: opt.id }))}
-                  className={`flex items-center space-x-3 p-4 rounded-xl border-2 transition-all cursor-pointer ${answers[currentIndex] === opt.id ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-muted hover:border-primary/30'}`}
+                  className={`flex items-center space-x-3 p-4 rounded-xl border-2 transition-all cursor-pointer ${answers[currentIndex] === opt.id ? 'border-primary bg-primary/5 ring-1 ring-primary shadow-sm' : 'border-muted hover:border-primary/20'}`}
                 >
                   <RadioGroupItem value={opt.id} id={`opt-${opt.id}`} className="sr-only" />
                   <div className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shrink-0 transition-colors ${answers[currentIndex] === opt.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
@@ -245,13 +315,13 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             <ArrowLeft className="h-4 w-4" /> Prev
           </Button>
           
-          <div className="text-sm font-bold bg-muted px-4 py-2 rounded-full">
+          <div className="text-sm font-bold bg-muted px-4 py-2 rounded-full hidden sm:block">
             {currentIndex + 1} / {questions.length}
           </div>
 
           {currentIndex === questions.length - 1 ? (
-            <Button size="lg" className="w-32 bg-secondary hover:bg-secondary/90 text-white font-bold" onClick={handleSubmit}>
-              Finish
+            <Button size="lg" className="w-32 bg-primary text-white font-bold" onClick={handleSubmit}>
+              Submit
             </Button>
           ) : (
             <Button size="lg" onClick={handleNext} className="w-32 gap-2 font-bold">
