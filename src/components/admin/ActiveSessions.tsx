@@ -1,13 +1,13 @@
+
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, doc, query, where } from "firebase/firestore";
-import { updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { collection, onSnapshot, doc, query, where, updateDoc } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ShieldAlert, Monitor, UserX, RefreshCw } from "lucide-react";
+import { ShieldAlert, Monitor, UserX, RefreshCw, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 
@@ -15,6 +15,7 @@ export default function ActiveSessions() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [terminatingId, setTerminatingId] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -32,20 +33,35 @@ export default function ActiveSessions() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    // Real-time listener handles the data, this just provides visual feedback
     setTimeout(() => setRefreshing(false), 500);
   };
 
-  const terminateSession = (id: string, name: string) => {
+  const terminateSession = async (id: string, name: string) => {
     if (confirm(`Force logout ${name}?`)) {
-      const sessionRef = doc(db, "userSessions", id);
-      // We update the session to be inactive instead of deleting it.
-      // This is more reliable as the admin has 'update' permissions in the rules.
-      updateDocumentNonBlocking(sessionRef, { isActive: false, lastActive: Date.now() });
-      toast({ 
-        title: "Termination Initiated", 
-        description: `Request to log out ${name} sent to server.` 
-      });
+      setTerminatingId(id);
+      try {
+        const sessionRef = doc(db, "userSessions", id);
+        // Force update the document to set isActive to false
+        await updateDoc(sessionRef, { 
+          isActive: false, 
+          lastActive: Date.now(),
+          terminatedAt: new Date().toISOString()
+        });
+        
+        toast({ 
+          title: "Session Terminated", 
+          description: `${name} has been forced to log out.` 
+        });
+      } catch (err: any) {
+        console.error("Termination failed:", err);
+        toast({ 
+          variant: "destructive",
+          title: "Action Failed", 
+          description: "Could not terminate session. Check permissions." 
+        });
+      } finally {
+        setTerminatingId(null);
+      }
     }
   };
 
@@ -57,7 +73,7 @@ export default function ActiveSessions() {
             <ShieldAlert className="h-5 w-5 text-secondary" />
             <CardTitle>Active User Sessions</CardTitle>
           </div>
-          <CardDescription>Real-time platform access monitoring.</CardDescription>
+          <CardDescription>Live monitoring of active students and administrators.</CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
@@ -73,13 +89,16 @@ export default function ActiveSessions() {
                 <TableHead>Device Info</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Last Activity</TableHead>
-                <TableHead className="text-right">Access Control</TableHead>
+                <TableHead className="text-right">Control</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">Tracking active users...</TableCell>
+                  <TableCell colSpan={5} className="text-center py-8">
+                    <Loader2 className="animate-spin h-5 w-5 mx-auto mb-2" />
+                    Tracking active users...
+                  </TableCell>
                 </TableRow>
               ) : sessions.length === 0 ? (
                 <TableRow>
@@ -114,10 +133,12 @@ export default function ActiveSessions() {
                       <Button 
                         variant="outline" 
                         size="sm" 
+                        disabled={terminatingId === session.id}
                         className="text-destructive hover:bg-destructive hover:text-white border-destructive/20"
                         onClick={() => terminateSession(session.id, session.name)}
                       >
-                        <UserX className="h-4 w-4 mr-2" /> Terminate
+                        {terminatingId === session.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserX className="h-4 w-4 mr-2" />}
+                        Terminate
                       </Button>
                     </TableCell>
                   </TableRow>
