@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from "react";
@@ -5,12 +6,11 @@ import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { GraduationCap, AlertCircle, ShieldCheck } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { GraduationCap, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function LoginPage() {
@@ -19,9 +19,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { toast } = useToast();
-  const errorParam = searchParams.get("error");
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,8 +27,10 @@ export default function LoginPage() {
 
     try {
       let loginEmail = identifier.trim();
-      if (!loginEmail.includes("@")) {
-        loginEmail = `${loginEmail}@quizmaster.com`;
+      const isRegId = !loginEmail.includes("@");
+      
+      if (isRegId) {
+        loginEmail = `${loginEmail.toLowerCase()}@quizmaster.com`;
       }
 
       // 1. Authenticate with Firebase Auth
@@ -58,30 +58,26 @@ export default function LoginPage() {
         return;
       }
 
-      // 4. Check Student Profile
-      const studentDoc = await getDoc(doc(db, "students", user.uid));
+      // 4. Check Student Profile by Reg ID (which we use as the doc ID)
+      const regId = identifier.trim().toUpperCase();
+      const studentDoc = await getDoc(doc(db, "student", regId));
       if (studentDoc.exists()) {
         router.push("/student");
         return;
       }
 
-      // 5. Handle account with no profile
+      // 5. Profile not found
       toast({
         variant: "destructive",
         title: "Profile Missing",
-        description: "Credentials are valid, but no profile was found.",
+        description: "Credentials are valid, but no student/admin profile was found.",
       });
     } catch (err: any) {
       console.error(err);
-      let message = "Invalid credentials. Please try again.";
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-        message = "No account found or invalid password.";
-      }
-      
       toast({
         variant: "destructive",
         title: "Login Failed",
-        description: message,
+        description: "Invalid credentials. Please contact your administrator.",
       });
     } finally {
       setLoading(false);
@@ -101,14 +97,6 @@ export default function LoginPage() {
           <CardDescription>Secure Student & Admin Portal</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {errorParam === "multiple_sessions" && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Session Conflict</AlertTitle>
-              <AlertDescription>Your session was terminated on another device.</AlertDescription>
-            </Alert>
-          )}
-          
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="identifier">Registration ID or Email</Label>
@@ -135,14 +123,14 @@ export default function LoginPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Checking credentials..." : "Sign In"}
+              {loading ? "Signing in..." : "Sign In"}
             </Button>
           </form>
         </CardContent>
         <CardFooter className="flex flex-col gap-2 text-center text-xs text-muted-foreground border-t pt-4">
           <div className="flex items-center justify-center gap-1.5 text-primary/70 font-medium">
             <ShieldCheck className="h-4 w-4" />
-            <span>Administrator-managed access only</span>
+            <span>Managed by Administrator</span>
           </div>
         </CardFooter>
       </Card>

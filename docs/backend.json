@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "Student": {
@@ -8,7 +9,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier for the Student entity."
+          "description": "Unique identifier for the Student entity (matches Registration ID)."
         },
         "name": {
           "type": "string",
@@ -20,33 +21,39 @@
         },
         "regId": {
           "type": "string",
-          "description": "Unique registration ID for the student, serving as their login identifier. This value must be unique across all students."
+          "description": "Unique registration ID for the student, serving as their login identifier."
+        },
+        "email": {
+          "type": "string",
+          "description": "Generated email for Auth lookup.",
+          "format": "email"
         },
         "notice": {
           "type": "string",
-          "description": "Administrative notes or remarks specific to this student, visible to admins."
+          "description": "Administrative notes or remarks specific to this student."
         }
       },
       "required": [
         "id",
         "name",
         "course",
-        "regId"
+        "regId",
+        "email"
       ]
     },
     "AdminUser": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "AdminUser",
       "type": "object",
-      "description": "Represents an administrator user account, including their profile information and email used for login.",
+      "description": "Represents an administrator user account.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier for the AdminUser entity."
+          "description": "Unique identifier for the AdminUser entity (matches Auth UID)."
         },
         "email": {
           "type": "string",
-          "description": "The email address of the administrator, serving as their login identifier. This value must be unique across all administrators.",
+          "description": "The email address of the administrator.",
           "format": "email"
         },
         "name": {
@@ -63,160 +70,41 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "UserSession",
       "type": "object",
-      "description": "Tracks active login sessions for both administrators and students, enabling session monitoring and termination by admins.",
+      "description": "Tracks active login sessions.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier for the UserSession entity."
+          "description": "Unique identifier (Auth UID)."
         },
         "userId": {
           "type": "string",
-          "description": "Reference to the unique identifier of the user (either Student.id or AdminUser.id) associated with this session. (Relationship: Student 1:N UserSession OR AdminUser 1:N UserSession)"
+          "description": "Auth UID."
         },
         "userType": {
           "type": "string",
-          "description": "The type of user (admin or student) to whom this session belongs.",
-          "items": {
-            "type": "string"
-          }
-        },
-        "loginTime": {
-          "type": "string",
-          "description": "Timestamp indicating when the user session was initiated.",
-          "format": "date-time"
-        },
-        "lastActivityTime": {
-          "type": "string",
-          "description": "Timestamp of the most recent recorded activity for this session. Used by the application to enforce the 1-hour inactivity auto-logout.",
-          "format": "date-time"
-        },
-        "deviceInfo": {
-          "type": "string",
-          "description": "Information about the client device or 'PC' from which the user logged in, as reported by the client (e.g., device name, browser, OS)."
+          "description": "admin or student"
         },
         "isActive": {
-          "type": "boolean",
-          "description": "A boolean flag indicating if the session is currently active and valid. Set to false by the application to terminate a session (e.g., by admin or on logout)."
+          "type": "boolean"
         }
-      },
-      "required": [
-        "id",
-        "userId",
-        "userType",
-        "loginTime",
-        "lastActivityTime",
-        "deviceInfo",
-        "isActive"
-      ]
-    },
-    "QuestionPaper": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "QuestionPaper",
-      "type": "object",
-      "description": "Stores metadata about a quiz paper, including its name, the external source for its questions, and the total question count.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the QuestionPaper entity."
-        },
-        "name": {
-          "type": "string",
-          "description": "The display name or title of the question paper."
-        },
-        "githubJsonLink": {
-          "type": "string",
-          "description": "The URI to a public GitHub JSON file containing the array of questions for this paper. Each question should be a separate object in the array.",
-          "format": "uri"
-        },
-        "totalQuestions": {
-          "type": "number",
-          "description": "The total number of questions parsed and identified from the provided GitHub JSON link. This value is determined upon paper creation."
-        }
-      },
-      "required": [
-        "id",
-        "name",
-        "githubJsonLink",
-        "totalQuestions"
-      ]
-    },
-    "StudentPaperProgress": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "StudentPaperProgress",
-      "type": "object",
-      "description": "Tracks a student's individual progress and completion status for a specific question paper, managing blocks of questions and preventing repetition.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the StudentPaperProgress entity."
-        },
-        "studentId": {
-          "type": "string",
-          "description": "Reference to the Student who is attempting this paper. (Relationship: Student 1:N StudentPaperProgress)"
-        },
-        "paperId": {
-          "type": "string",
-          "description": "Reference to the QuestionPaper being attempted by the student. (Relationship: QuestionPaper 1:N StudentPaperProgress)"
-        },
-        "completedQuestionIndices": {
-          "type": "array",
-          "description": "An array of 0-based indices (corresponding to the order in the GitHub JSON) of questions the student has already completed for this paper. Ensures questions are not repeated within an attempt.",
-          "items": {
-            "type": "number"
-          }
-        },
-        "currentQuizBlockStartIndex": {
-          "type": "number",
-          "description": "The 0-based starting index within the full paper's question set from which the current 100-question block for the student begins (e.g., 0 for questions 0-99, 100 for 100-199)."
-        },
-        "lastAttemptTime": {
-          "type": "string",
-          "description": "Timestamp of the most recent activity or submission related to this paper by the student.",
-          "format": "date-time"
-        },
-        "isPaperCompleted": {
-          "type": "boolean",
-          "description": "A boolean flag indicating if the student has completed all unique questions available in the entire paper."
-        },
-        "totalQuestionsAnswered": {
-          "type": "number",
-          "description": "The cumulative count of distinct questions the student has answered across all blocks for this paper, providing a summary of their progress."
-        }
-      },
-      "required": [
-        "id",
-        "studentId",
-        "paperId",
-        "completedQuestionIndices",
-        "currentQuizBlockStartIndex",
-        "lastAttemptTime",
-        "isPaperCompleted",
-        "totalQuestionsAnswered"
-      ]
+      }
     }
   },
   "auth": {
     "providers": [
-      "password",
-      "anonymous"
+      "password"
     ]
   },
   "firestore": {
     "structure": [
       {
-        "path": "/students/{studentId}",
+        "path": "/student/{regId}",
         "definition": {
           "entityName": "Student",
           "schema": {
             "$ref": "#/backend/entities/Student"
           },
-          "description": "Stores individual student profiles. The 'studentId' in the path matches the Firebase Auth UID. Authorization relies on path-based ownership for the student's own profile and isAdmin() for administrative access. Includes denormalized 'id' matching 'studentId' for integrity.",
-          "params": [
-            {
-              "name": "studentId",
-              "description": "The unique Firebase Authentication UID of the student."
-            }
-          ]
+          "description": "Stores student profiles indexed by their Registration ID."
         }
       },
       {
@@ -226,68 +114,23 @@
           "schema": {
             "$ref": "#/backend/entities/AdminUser"
           },
-          "description": "Stores administrator user profiles. The 'adminId' in the path matches the Firebase Auth UID, serving as the primary mechanism to identify an administrator. Authorization relies on path-based ownership for the admin's own profile and isAdmin() for other admin management. Includes denormalized 'id' matching 'adminId' for integrity.",
-          "params": [
-            {
-              "name": "adminId",
-              "description": "The unique Firebase Authentication UID of the administrator."
-            }
-          ]
+          "description": "Stores admin profiles indexed by Auth UID."
         }
       },
       {
         "path": "/userSessions/{sessionId}",
         "definition": {
           "entityName": "UserSession",
-          "schema": {
-            "$ref": "#/backend/entities/UserSession"
-          },
-          "description": "Tracks active login sessions for both students and administrators. Each document contains 'userId' and 'userType' fields for authorization independence, allowing direct checks against request.auth.uid or isAdmin() without requiring get() calls to parent documents. Admin users can list all sessions, while individual users can only read/update their own session (e.g., on logout or activity).",
-          "params": [
-            {
-              "name": "sessionId",
-              "description": "The unique identifier for a user session."
-            }
-          ]
+          "description": "Tracks active sessions."
         }
       },
       {
-        "path": "/questionPapers/{paperId}",
-        "definition": {
-          "entityName": "QuestionPaper",
-          "schema": {
-            "$ref": "#/backend/entities/QuestionPaper"
-          },
-          "description": "Stores metadata for all quiz question papers. This collection is globally readable by all authenticated users (students and admins) to facilitate paper selection, but is only writable by administrators. Authorization for write operations relies on isAdmin().",
-          "params": [
-            {
-              "name": "paperId",
-              "description": "The unique identifier for a question paper."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/users/{studentId}/studentPaperProgress/{progressId}",
+        "path": "/student/{regId}/progress/{paperId}",
         "definition": {
           "entityName": "StudentPaperProgress",
-          "schema": {
-            "$ref": "#/backend/entities/StudentPaperProgress"
-          },
-          "description": "Tracks a student's progress on a specific question paper. This subcollection is nested under a student's data ('/users/{studentId}') to enforce path-based ownership, ensuring only the student whose UID matches 'studentId' can read or update their own progress. The 'studentId' field is denormalized within the document for integrity checks.",
-          "params": [
-            {
-              "name": "studentId",
-              "description": "The unique Firebase Authentication UID of the student."
-            },
-            {
-              "name": "progressId",
-              "description": "The unique identifier for a student's progress record on a specific paper."
-            }
-          ]
+          "description": "Tracks progress per student per paper."
         }
       }
-    ],
-    "reasoning": "The Firestore data structure is designed to be secure, scalable, and debuggable, adhering to the core design principles and mandates. Authorization independence is a critical focus, primarily achieved through path-based ownership and strategic denormalization of authorization context.\n\n**Authorization Independence via Denormalization & Path-Based Ownership:**\n1.  **Users (Students & Admins):** The `students` and `admins` top-level collections are designed such that the document ID (`studentId` or `adminId`) directly corresponds to the Firebase Authentication `request.auth.uid`. This makes authorization highly independent. For example, a student can access `/students/{request.auth.uid}` to manage their own profile, and an admin can be identified by checking for the existence of `/admins/{request.auth.uid}`. No `get()` operations to parent documents are needed for these core user roles.\n2.  **User Sessions (`userSessions`):** Each `UserSession` document explicitly includes `userId` and `userType`. Authorization rules can directly check `request.auth.uid == resource.data.userId` for user-specific access (e.g., a user terminating their own session) or `isAdmin()` (which relies on `request.auth.uid` against the `/admins` collection) for administrative actions. This denormalization within the document ensures that access decisions for a session do not require fetching any other related documents.\n3.  **Student Paper Progress (`users/{studentId}/studentPaperProgress`):** This is a key example of path-based ownership. By nesting `studentPaperProgress` under `/users/{studentId}`, the `studentId` parameter in the path automatically matches `request.auth.uid` for student-specific access. Each `studentPaperProgress` document also includes `studentId` as a denormalized field (`resource.data.studentId`), providing an additional layer of integrity and ensuring rules can operate on the document's self-contained data. This completely eliminates the need for `get()` calls to a parent `Student` document for authorization of progress data.\n\n**QAPs (Rules are not Filters) Justification:**\n1.  **`students` Collection:**\n    *   Students can only `get` their own profile (`/students/{request.auth.uid}`). The structure implicitly filters for `get` operations.\n    *   Admins (identified by `isAdmin()`) can `list` all students. This aligns with the administrative requirement to view all student accounts, satisfying the QAP as no further filtering is needed by rules.\n2.  **`admins` Collection:**\n    *   Admins can `get` their own profile (`/admins/{request.auth.uid}`).\n    *   Admins can `list` all other admin profiles. This is a secure operation for managing fellow administrators.\n3.  **`userSessions` Collection:**\n    *   Users can `get` their own active session details. \n    *   Admins can `list` all active sessions. The expectation for an admin is to see all sessions for management, hence `list` operations for admins are fully supported without rule-based filtering.\n4.  **`questionPapers` Collection:** \n    *   All authenticated users (students and admins) can `list` all available question papers. This directly supports the requirement for students to browse and select papers. No filtering needed.\n    *   Only admins can `create`, `update`, `delete` papers.\n5.  **`users/{studentId}/studentPaperProgress` Collection:**\n    *   Students can `list` their own progress documents (`/users/{request.auth.uid}/studentPaperProgress`). The hierarchical path intrinsically filters the `list` results to only the current user's data, fully satisfying the QAP.\n\n**Structural Segregation & Access Modeling:**\n*   **Private Data:** `students` and `admins` collections are segregated for user type. `users/{studentId}/studentPaperProgress` creates a private space for each student's quiz progress.\n*   **Global Resources:** `questionPapers` is a top-level collection, readable by all authenticated users, but writable only by admins, providing a homogeneous security posture.\n*   **Global Roles (DBAC):** Admin identification is based on existence in the `/admins` collection, which is checked via `request.auth.uid`. This follows the "
+    ]
   }
 }

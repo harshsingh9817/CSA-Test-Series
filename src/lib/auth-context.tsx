@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
@@ -30,7 +31,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let unsubscribeProfile: (() => void) | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      // Clean up previous profile listener if it exists
       if (unsubscribeProfile) {
         unsubscribeProfile();
         unsubscribeProfile = null;
@@ -40,56 +40,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(firebaseUser);
         setLoading(true);
 
-        // First, check the admins collection
+        // 1. Check admins
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
-            setUserData({ ...adminSnap.data(), role: "admin", id: firebaseUser.uid });
+            const data = { ...adminSnap.data(), role: "admin", id: firebaseUser.uid };
+            setUserData(data);
             setLoading(false);
-            
-            // Sync Session
-            const sessionRef = doc(db, "userSessions", firebaseUser.uid);
-            setDoc(sessionRef, {
-              id: firebaseUser.uid,
-              userId: firebaseUser.uid,
-              userType: "admin",
-              loginTime: new Date().toISOString(),
-              lastActivityTime: new Date().toISOString(),
-              deviceInfo: navigator.userAgent,
-              isActive: true,
-              name: adminSnap.data().name || firebaseUser.email,
-              email: firebaseUser.email,
-              role: "admin",
-              lastActive: Date.now(),
-            }, { merge: true });
+            syncSession(firebaseUser.uid, "admin", data.name, firebaseUser.email);
           } else {
-            // If not an admin, check the students collection
-            const studentRef = doc(db, "students", firebaseUser.uid);
-            // We need a second nested listener or a more complex approach, but for simplicity:
-            onSnapshot(studentRef, (studentSnap) => {
-              if (studentSnap.exists()) {
-                setUserData({ ...studentSnap.data(), role: "student", id: firebaseUser.uid });
-                
-                // Sync Session for Student
-                const sessionRef = doc(db, "userSessions", firebaseUser.uid);
-                setDoc(sessionRef, {
-                  id: firebaseUser.uid,
-                  userId: firebaseUser.uid,
-                  userType: "student",
-                  loginTime: new Date().toISOString(),
-                  lastActivityTime: new Date().toISOString(),
-                  deviceInfo: navigator.userAgent,
-                  isActive: true,
-                  name: studentSnap.data().name || firebaseUser.email,
-                  email: firebaseUser.email,
-                  role: "student",
-                  lastActive: Date.now(),
-                }, { merge: true });
-              } else {
-                setUserData(null);
-              }
+            // 2. Check student by inferring Reg ID from email (regid@quizmaster.com)
+            const email = firebaseUser.email || "";
+            if (email.endsWith("@quizmaster.com")) {
+              const regId = email.split("@")[0].toUpperCase();
+              const studentRef = doc(db, "student", regId);
+              onSnapshot(studentRef, (studentSnap) => {
+                if (studentSnap.exists()) {
+                  const data = { ...studentSnap.data(), role: "student", id: regId };
+                  setUserData(data);
+                  syncSession(firebaseUser.uid, "student", data.name, firebaseUser.email);
+                } else {
+                  setUserData(null);
+                }
+                setLoading(false);
+              });
+            } else {
+              setUserData(null);
               setLoading(false);
-            });
+            }
           }
         });
       } else {
@@ -104,6 +82,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubscribeProfile) unsubscribeProfile();
     };
   }, []);
+
+  const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
+    const sessionRef = doc(db, "userSessions", uid);
+    await setDoc(sessionRef, {
+      id: uid,
+      userId: uid,
+      userType: role,
+      loginTime: new Date().toISOString(),
+      lastActivityTime: new Date().toISOString(),
+      deviceInfo: navigator.userAgent,
+      isActive: true,
+      name: name || email,
+      email: email,
+      role: role,
+      lastActive: Date.now(),
+    }, { merge: true });
+  };
 
   const logout = async () => {
     if (user) {

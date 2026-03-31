@@ -1,62 +1,56 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Helper Functions ---
-
     function isSignedIn() {
       return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
     }
 
     function isAdmin() {
       return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    // --- Collection Rules ---
+    function isStudent(regId) {
+      return isSignedIn() && (
+        // Allow access if the email matches the record
+        get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email
+      );
+    }
 
-    match /students/{studentId} {
-      allow get: if isOwner(studentId) || isAdmin();
+    match /student/{regId} {
+      allow get: if isStudent(regId) || isAdmin();
       allow list: if isAdmin();
-      allow create: if (isOwner(studentId) && request.resource.data.id == studentId) || isAdmin();
-      allow update: if (isOwner(studentId) && request.resource.data.id == studentId) || isAdmin();
-      allow delete: if isAdmin();
+      allow create, update, delete: if isAdmin();
+
+      match /progress/{paperId} {
+        allow get, list: if isStudent(regId) || isAdmin();
+        allow create, update: if isStudent(regId);
+        allow delete: if isAdmin();
+      }
     }
 
     match /admins/{adminId} {
-      allow get: if isOwner(adminId) || isAdmin();
+      allow get: if (isSignedIn() && request.auth.uid == adminId) || isAdmin();
       allow list: if isAdmin();
-      // Allow bootstrapping for the primary admin email
-      allow create: if isOwner(adminId) && (isAdmin() || request.resource.data.email == "sunilsingh8896@gmail.com");
+      allow create: if isSignedIn() && (isAdmin() || request.resource.data.email == "sunilsingh8896@gmail.com");
       allow update, delete: if isAdmin();
     }
 
     match /userSessions/{sessionId} {
-      allow get: if (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid)) || isAdmin();
-      allow list: if isAdmin();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if (isSignedIn() && (resource == null || resource.data.userId == request.auth.uid)) || isAdmin();
-      allow delete: if isAdmin();
+      allow get, update: if (isSignedIn() && request.auth.uid == sessionId) || isAdmin();
+      allow list, delete: if isAdmin();
+      allow create: if isSignedIn();
     }
 
-    match /questionPapers/{paperId} {
-      allow get, list: if isSignedIn();
-      allow create, update, delete: if isAdmin();
-    }
-
-    // Allow the old 'papers' collection which the current UI uses
     match /papers/{paperId} {
       allow get, list: if isSignedIn();
       allow create, update, delete: if isAdmin();
     }
-
-    match /users/{studentId}/{document=**} {
-      allow get, list: if isOwner(studentId) || isAdmin();
-      allow create, update: if isOwner(studentId);
-      allow delete: if isOwner(studentId) || isAdmin();
+    
+    match /questionPapers/{paperId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isAdmin();
     }
   }
 }

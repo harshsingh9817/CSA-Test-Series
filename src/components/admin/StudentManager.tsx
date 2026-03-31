@@ -1,8 +1,9 @@
+
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, deleteDoc, doc, onSnapshot } from "firebase/firestore";
+import { collection, setDoc, deleteDoc, doc, onSnapshot } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,8 +30,8 @@ export default function StudentManager() {
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    // Correct collection name to 'students' as per firestore.rules
-    const unsub = onSnapshot(collection(db, "students"), (snapshot) => {
+    // Listen to 'student' (singular) collection
+    const unsub = onSnapshot(collection(db, "student"), (snapshot) => {
       const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setStudents(list);
       setLoading(false);
@@ -42,21 +43,29 @@ export default function StudentManager() {
     e.preventDefault();
     setAdding(true);
 
+    const cleanRegId = regId.trim().toUpperCase();
+    if (!cleanRegId) {
+      toast({ variant: "destructive", title: "Error", description: "Registration ID is required." });
+      setAdding(false);
+      return;
+    }
+
     try {
       const studentDoc = {
+        id: cleanRegId,
         name,
         course,
-        regId,
-        password, 
+        regId: cleanRegId,
+        password, // Insecure but prototype requirement
         notice,
         createdAt: Date.now(),
-        email: `${regId}@quizmaster.com`,
+        email: `${cleanRegId.toLowerCase()}@quizmaster.com`,
       };
 
-      // Correct collection name to 'students'
-      await addDoc(collection(db, "students"), studentDoc);
+      // Save to 'student' collection using cleanRegId as document ID
+      await setDoc(doc(db, "student", cleanRegId), studentDoc);
 
-      toast({ title: "Student Added", description: `Registration ID ${regId} created successfully.` });
+      toast({ title: "Student Added", description: `Student ${cleanRegId} created successfully.` });
       setIsAddOpen(false);
       resetForm();
     } catch (err: any) {
@@ -73,7 +82,7 @@ export default function StudentManager() {
   const handleDelete = async (id: string, name: string) => {
     if (confirm(`Are you sure you want to delete student ${name}?`)) {
       try {
-        await deleteDoc(doc(db, "students", id));
+        await deleteDoc(doc(db, "student", id));
         toast({ title: "Deleted", description: "Student account removed." });
       } catch (err: any) {
         toast({ variant: "destructive", title: "Error", description: err.message });
@@ -113,20 +122,20 @@ export default function StudentManager() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Full Name</Label>
-                  <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="off" />
+                  <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="course">Course</Label>
-                  <Input id="course" value={course} onChange={(e) => setCourse(e.target.value)} required autoComplete="off" />
+                  <Input id="course" value={course} onChange={(e) => setCourse(e.target.value)} required />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="regId">Registration ID</Label>
-                <Input id="regId" value={regId} onChange={(e) => setRegId(e.target.value)} required autoComplete="off" />
+                <Input id="regId" placeholder="e.g. ST101" value={regId} onChange={(e) => setRegId(e.target.value)} required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="new-password">Password</Label>
-                <Input id="new-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="new-password" />
+                <Input id="new-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="notice">Notice/Notes</Label>
