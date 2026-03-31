@@ -1,8 +1,10 @@
+
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, deleteDoc, doc } from "firebase/firestore";
+import { collection, onSnapshot, doc } from "firebase/firestore";
+import { deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,7 +18,6 @@ export default function ActiveSessions() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Correct collection name as per backend.json and firestore.rules
     const unsub = onSnapshot(collection(db, "userSessions"), (snapshot) => {
       const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setSessions(list);
@@ -25,14 +26,14 @@ export default function ActiveSessions() {
     return () => unsub();
   }, []);
 
-  const terminateSession = async (id: string, name: string) => {
+  const terminateSession = (id: string, name: string) => {
     if (confirm(`Force logout ${name}?`)) {
-      try {
-        await deleteDoc(doc(db, "userSessions", id));
-        toast({ title: "Session Terminated", description: `User ${name} has been logged out.` });
-      } catch (err: any) {
-        toast({ variant: "destructive", title: "Error", description: err.message });
-      }
+      const sessionRef = doc(db, "userSessions", id);
+      deleteDocumentNonBlocking(sessionRef);
+      toast({ 
+        title: "Termination Initiated", 
+        description: `Request to log out ${name} sent to server.` 
+      });
     }
   };
 
