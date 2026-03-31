@@ -8,15 +8,23 @@ import { collection, onSnapshot, getDocs } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { GraduationCap, BookOpen, CheckCircle2, PlayCircle, LogOut, Clock } from "lucide-react";
+import { GraduationCap, BookOpen, CheckCircle2, PlayCircle, LogOut, Clock, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Progress } from "@/components/ui/progress";
+import { useRouter } from "next/navigation";
 
 export default function StudentDashboard() {
-  const { user, userData, logout } = useAuth();
+  const { user, userData, loading: authLoading, logout } = useAuth();
   const [papers, setPapers] = useState<any[]>([]);
   const [progressData, setProgressData] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!authLoading && (!user || !userData || userData.role !== "student")) {
+      router.push("/login");
+    }
+  }, [user, userData, authLoading, router]);
 
   useEffect(() => {
     if (!user || !userData || userData.role !== "student") return;
@@ -53,6 +61,17 @@ export default function StudentDashboard() {
 
     return () => unsub();
   }, [user, userData]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-4" />
+          <p className="text-primary font-medium">Loading Student Profile...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!userData || userData.role !== "student") return null;
 

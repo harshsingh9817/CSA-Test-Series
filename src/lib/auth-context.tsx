@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(firebaseUser);
         setLoading(true);
 
-        // 1. Check admins
+        // 1. Check admins collection first
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
@@ -49,12 +49,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setLoading(false);
             syncSession(firebaseUser.uid, "admin", data.name, firebaseUser.email);
           } else {
-            // 2. Check student by inferring Reg ID from email (regid@quizmaster.com)
+            // 2. Check student collection (matching regId@csa.com)
             const email = firebaseUser.email || "";
-            if (email.endsWith("@quizmaster.com")) {
+            if (email.toLowerCase().endsWith("@csa.com")) {
               const regId = email.split("@")[0].toUpperCase();
               const studentRef = doc(db, "student", regId);
-              onSnapshot(studentRef, (studentSnap) => {
+              // Set up listener for student profile
+              const unsubStudent = onSnapshot(studentRef, (studentSnap) => {
                 if (studentSnap.exists()) {
                   const data = { ...studentSnap.data(), role: "student", id: regId };
                   setUserData(data);
@@ -63,12 +64,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   setUserData(null);
                 }
                 setLoading(false);
+              }, (err) => {
+                console.error("Student profile listener error:", err);
+                setUserData(null);
+                setLoading(false);
               });
+              
+              // Store this listener to clean up
+              unsubscribeProfile = unsubStudent;
             } else {
               setUserData(null);
               setLoading(false);
             }
           }
+        }, (err) => {
+          console.error("Admin profile listener error:", err);
+          setUserData(null);
+          setLoading(false);
         });
       } else {
         setUser(null);
@@ -85,19 +97,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
     const sessionRef = doc(db, "userSessions", uid);
-    await setDoc(sessionRef, {
-      id: uid,
-      userId: uid,
-      userType: role,
-      loginTime: new Date().toISOString(),
-      lastActivityTime: new Date().toISOString(),
-      deviceInfo: navigator.userAgent,
-      isActive: true,
-      name: name || email,
-      email: email,
-      role: role,
-      lastActive: Date.now(),
-    }, { merge: true });
+    try {
+      await setDoc(sessionRef, {
+        id: uid,
+        userId: uid,
+        userType: role,
+        loginTime: new Date().toISOString(),
+        lastActivityTime: new Date().toISOString(),
+        deviceInfo: navigator?.userAgent || "Unknown Device",
+        isActive: true,
+        name: name || email || "Anonymous User",
+        email: email,
+        role: role,
+        lastActive: Date.now(),
+      }, { merge: true });
+    } catch (e) {
+      console.warn("Could not sync session to Firestore:", e);
+    }
   };
 
   const logout = async () => {
