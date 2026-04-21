@@ -75,6 +75,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (snap.exists() && !forceLogoutHandled) {
             const sessionData = snap.data();
             
+            // 1. Force logout if admin set isActive to false for OUR session
             if (sessionData.sessionId === localSessionId && sessionData.isActive === false) {
               setForceLogoutHandled(true);
               logout();
@@ -82,6 +83,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               return;
             }
 
+            // 2. Conflict check: Logout if another device logged in (ONLY after we synced our own)
             if (isSessionSynced.current && sessionData.sessionId !== localSessionId && sessionData.isActive === true) {
               setForceLogoutHandled(true);
               logout();
@@ -91,6 +93,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           }
         });
 
+        // Load profile
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
@@ -161,6 +164,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         status: "active"
       }, { merge: true });
       
+      // Mark as synced so conflict detection can start
       isSessionSynced.current = true;
     } catch (e) {
       console.warn("Session sync failed:", e);

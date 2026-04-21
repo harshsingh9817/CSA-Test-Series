@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Trophy, Target, XCircle, Info, Loader2, ListFilter } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 export default function QuizPage({ params }: { params: Promise<{ paperId: string }> }) {
   const { paperId } = use(params);
@@ -55,6 +55,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
+        // Fetch user progress to filter questions
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const completedIndices = new Set<number>();
         progressSnap.forEach(doc => {
@@ -64,11 +65,13 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           }
         });
 
+        // Load all questions
         const res = await fetch(paperData.url);
         if (!res.ok) throw new Error("Failed to fetch questions");
         const allQuestionsRaw = await res.json();
 
         const allQuestions = allQuestionsRaw.map((q: any, originalIndex: number) => {
+          // Detect format: support both your bilingual and standard JSON formats
           const isBilingual = q.question_en && q.options;
           return {
             originalIndex,
@@ -81,13 +84,15 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           };
         });
 
+        // Filter out completed ones
         let remainingQuestions = allQuestions.filter((q: any) => !completedIndices.has(q.originalIndex));
 
+        // If all done, start fresh (or retake logic)
         if (remainingQuestions.length === 0) {
           remainingQuestions = allQuestions;
         }
 
-        setQuestions(remainingQuestions.slice(0, 100));
+        setQuestions(remainingQuestions.slice(0, 100)); // Standard session size
         setLoading(false);
       } catch (err: any) {
         console.error("Quiz load error:", err);
@@ -148,6 +153,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
     setSubmitted(true);
 
+    // Save results to firestore
     if (!userData?.regId || answeredIndices.length === 0) return;
 
     try {
@@ -260,12 +266,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             <Sheet>
               <SheetTrigger asChild>
                 <Button variant="outline" className="gap-2">
-                  <ListFilter className="h-4 w-4" /> Jump to Question
+                  <ListFilter className="h-4 w-4" /> Navigator
                 </Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-[300px] sm:w-[400px]">
                 <SheetHeader>
-                  <SheetTitle>Select Question</SheetTitle>
+                  <SheetTitle>Jump to Question</SheetTitle>
                 </SheetHeader>
                 <div className="py-6">
                   <ScrollArea className="h-[70vh]">
@@ -338,7 +344,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           </Button>
           
           <div className="text-xs font-black bg-muted px-4 py-2 rounded-full text-muted-foreground">
-            {currentIndex + 1} / {questions.length}
+            {currentIndex + 1} Answered
           </div>
 
           {currentIndex === questions.length - 1 ? (
