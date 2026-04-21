@@ -71,7 +71,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const allQuestionsRaw = await res.json();
 
         const allQuestions = allQuestionsRaw.map((q: any, originalIndex: number) => {
-          // Detect format: support both your bilingual and standard JSON formats
           const isBilingual = q.question_en && q.options;
           return {
             originalIndex,
@@ -87,12 +86,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         // Filter out completed ones
         let remainingQuestions = allQuestions.filter((q: any) => !completedIndices.has(q.originalIndex));
 
-        // If all done, start fresh (or retake logic)
+        // If all done, start fresh (retake)
         if (remainingQuestions.length === 0) {
           remainingQuestions = allQuestions;
         }
 
-        setQuestions(remainingQuestions.slice(0, 100)); // Standard session size
+        setQuestions(remainingQuestions.slice(0, 100)); // Default session size
         setLoading(false);
       } catch (err: any) {
         console.error("Quiz load error:", err);
@@ -153,7 +152,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
     setSubmitted(true);
 
-    // Save results to firestore
     if (!userData?.regId || answeredIndices.length === 0) return;
 
     try {
@@ -191,11 +189,11 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         <CardContent className="p-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Session Size</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Questions in Session</p>
               <p className="text-2xl font-black">{results.total}</p>
             </div>
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Answered</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Attempted</p>
               <p className="text-2xl font-black">{results.attempted}</p>
             </div>
             <div className="bg-green-50 p-4 rounded-xl text-center border border-green-100">
@@ -209,14 +207,14 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           </div>
 
           <div className="text-center space-y-2 mb-10">
-            <p className="text-sm font-bold text-muted-foreground">Session Accuracy</p>
+            <p className="text-sm font-bold text-muted-foreground">Accuracy Percentage</p>
             <p className="text-5xl font-black text-primary">{results.percentage}%</p>
           </div>
 
           {results.wrongQuestions.length > 0 && (
             <div className="space-y-6">
               <h3 className="font-black text-xl border-b pb-2 flex items-center gap-2">
-                <XCircle className="text-red-500 h-5 w-5" /> Detailed Mistake Analysis
+                <XCircle className="text-red-500 h-5 w-5" /> Mistake Analysis
               </h3>
               <div className="space-y-4">
                 {results.wrongQuestions.map((q, i) => (
@@ -225,7 +223,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
                       <p className="font-bold text-sm">Q: {q.question}</p>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="p-2 rounded bg-red-50 border border-red-100">
-                          <p className="text-[10px] font-bold text-red-600 uppercase">Your Answer ({q.userChoice})</p>
+                          <p className="text-[10px] font-bold text-red-600 uppercase">Your Choice ({q.userChoice})</p>
                           <p className="text-sm">{q[`opt${q.userChoice}`]}</p>
                         </div>
                         <div className="p-2 rounded bg-green-50 border border-green-100">
@@ -245,7 +243,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             Back to Dashboard
           </Button>
           <Button variant="outline" className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
-            Try New Set
+            Retake Remaining
           </Button>
         </CardFooter>
       </Card>
@@ -271,7 +269,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               </SheetTrigger>
               <SheetContent side="right" className="w-[300px] sm:w-[400px]">
                 <SheetHeader>
-                  <SheetTitle>Jump to Question</SheetTitle>
+                  <SheetTitle>Question Navigator</SheetTitle>
                 </SheetHeader>
                 <div className="py-6">
                   <ScrollArea className="h-[70vh]">
@@ -344,7 +342,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           </Button>
           
           <div className="text-xs font-black bg-muted px-4 py-2 rounded-full text-muted-foreground">
-            {currentIndex + 1} Answered
+            Progressing Session
           </div>
 
           {currentIndex === questions.length - 1 ? (

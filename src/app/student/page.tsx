@@ -106,7 +106,7 @@ export default function StudentDashboard() {
               <p className="text-sm font-medium">{userData.name}</p>
               <p className="text-xs text-muted-foreground capitalize">Reg ID: {userData.regId}</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={logout} title="Logout">
+            <Button variant="ghost" size="icon" onClick={() => logout()} title="Logout">
               <LogOut className="h-5 w-5 text-destructive" />
             </Button>
           </div>
@@ -173,7 +173,7 @@ export default function StudentDashboard() {
                     <Card key={paper.id} className="hover:shadow-md transition-shadow group border-t-4 border-t-transparent hover:border-t-primary">
                       <CardHeader>
                         <CardTitle className="text-lg font-bold">{paper.name}</CardTitle>
-                        <CardDescription>Practice session for {paper.name}</CardDescription>
+                        <CardDescription>Practice session</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-2">
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -230,7 +230,7 @@ export default function StudentDashboard() {
                             </td>
                             <td className="px-6 py-4 text-right">
                               <Badge variant={entry.score / entry.attempted >= 0.4 ? "default" : "destructive"}>
-                                {Math.round((entry.score / entry.attempted) * 100)}%
+                                {entry.attempted > 0 ? Math.round((entry.score / entry.attempted) * 100) : 0}%
                               </Badge>
                             </td>
                           </tr>

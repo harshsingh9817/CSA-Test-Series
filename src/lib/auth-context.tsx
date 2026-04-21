@@ -1,10 +1,11 @@
+
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "./firebase";
-import { doc, onSnapshot, getDoc } from "firebase/firestore";
-import { getDatabase, ref, onValue, set, update, onDisconnect } from "firebase/database";
+import { doc, onSnapshot } from "firebase/firestore";
+import { getDatabase, ref, onValue, set, update, onDisconnect, remove } from "firebase/database";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
@@ -31,16 +32,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const isSessionSynced = useRef(false);
   const database = getDatabase();
 
-  const logout = async () => {
+  const logout = async (isSilent: boolean = false) => {
     const currentUser = auth.currentUser;
     if (currentUser) {
       try {
         const sessionRef = ref(database, `userSessions/${currentUser.uid}`);
-        await update(sessionRef, { 
-          isActive: false, 
-          lastActive: Date.now(),
-          status: "logged_out"
-        });
+        // If manual logout, we can remove the record or mark as inactive
+        await remove(sessionRef);
       } catch (e) {}
     }
     await signOut(auth);
@@ -67,21 +65,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         // RTDB Session Listener
         const sessionRef = ref(database, `userSessions/${firebaseUser.uid}`);
         unsubscribeSession = onValue(sessionRef, (snap) => {
-          if (snap.exists()) {
+          if (snap.exists() && isSessionSynced.current) {
             const sessionData = snap.val();
             
-            // Kick out logic
-            if (isSessionSynced.current) {
-              if (sessionData.sessionId === localSessionId && sessionData.isActive === false) {
-                logout();
-                alert("Your session has been terminated by an administrator.");
-                return;
-              }
-              if (sessionData.sessionId !== localSessionId && sessionData.isActive === true) {
-                logout();
-                alert("New login detected. You have been logged out from this device.");
-                return;
-              }
+            // Silent Kick-out Logic:
+            // 1. If session is marked inactive (e.g. terminated by admin)
+            // 2. If session ID has changed (e.g. logged in elsewhere)
+            if (sessionData.isActive === false || sessionData.sessionId !== localSessionId) {
+              logout(true);
+              return;
             }
           }
         });

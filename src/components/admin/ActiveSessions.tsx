@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -22,7 +23,7 @@ export default function ActiveSessions() {
     const unsub = onValue(sessionsRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        // Filter for active sessions only
+        // Only active sessions
         const list = Object.keys(data)
           .map(key => ({ ...data[key], id: key }))
           .filter(s => s.isActive === true);
@@ -32,9 +33,6 @@ export default function ActiveSessions() {
       }
       setLoading(false);
       setRefreshing(false);
-    }, (error) => {
-      console.error("RTDB Sessions listener error:", error);
-      setLoading(false);
     });
     return () => unsub();
   }, [database]);
@@ -51,6 +49,7 @@ export default function ActiveSessions() {
       setTerminatingId(uid);
       try {
         const sessionRef = ref(database, `userSessions/${uid}`);
+        // Marking as inactive triggers the silent logout in student's AuthContext
         await update(sessionRef, { 
           isActive: false, 
           lastActive: Date.now(),
@@ -66,7 +65,7 @@ export default function ActiveSessions() {
         toast({ 
           variant: "destructive",
           title: "Action Failed", 
-          description: "Database connection error." 
+          description: "Could not update session record." 
         });
       } finally {
         setTerminatingId(null);
@@ -82,7 +81,7 @@ export default function ActiveSessions() {
             <ShieldAlert className="h-5 w-5 text-secondary" />
             <CardTitle>Active User Sessions</CardTitle>
           </div>
-          <CardDescription>Monitor and manage currently logged-in users via Real-time DB.</CardDescription>
+          <CardDescription>Real-time session monitoring.</CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
@@ -106,13 +105,13 @@ export default function ActiveSessions() {
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                     <Loader2 className="animate-spin h-5 w-5 mx-auto mb-2" />
-                    Checking for active users...
+                    Checking sessions...
                   </TableCell>
                 </TableRow>
               ) : sessions.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                    No active sessions found.
+                    No active sessions.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -136,7 +135,7 @@ export default function ActiveSessions() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs">
-                      {session.lastActivityTime ? new Date(session.lastActivityTime).toLocaleTimeString() : 'Recently'}
+                      {session.lastActivityTime ? new Date(session.lastActivityTime).toLocaleTimeString() : 'Active'}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button 
