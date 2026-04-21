@@ -88,6 +88,19 @@
           "type": "boolean"
         }
       }
+    },
+    "StudentReport": {
+      "title": "StudentReport",
+      "type": "object",
+      "description": "Simplified performance summary for a student session.",
+      "properties": {
+        "paperName": { "type": "string" },
+        "attempted": { "type": "number" },
+        "correct": { "type": "number" },
+        "incorrect": { "type": "number" },
+        "percentage": { "type": "number" },
+        "timestamp": { "type": "number" }
+      }
     }
   },
   "auth": {
@@ -105,6 +118,16 @@
             "$ref": "#/backend/entities/Student"
           },
           "description": "Stores student profiles indexed by their Registration ID."
+        }
+      },
+      {
+        "path": "/student/{regId}/report/{reportId}",
+        "definition": {
+          "entityName": "StudentReport",
+          "schema": {
+            "$ref": "#/backend/entities/StudentReport"
+          },
+          "description": "Stores simplified session summaries for admin review."
         }
       },
       {

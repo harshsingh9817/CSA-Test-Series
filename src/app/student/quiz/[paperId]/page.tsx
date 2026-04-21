@@ -91,7 +91,8 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           remainingQuestions = allQuestions;
         }
 
-        setQuestions(remainingQuestions.slice(0, 100)); // Default session size
+        // Limit session size to 100 for better UX, or all remaining if less
+        setQuestions(remainingQuestions.slice(0, 100)); 
         setLoading(false);
       } catch (err: any) {
         console.error("Quiz load error:", err);
@@ -117,14 +118,14 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
   const handleSubmit = async () => {
     let correct = 0;
-    let attempted = 0;
+    let attemptedCount = 0;
     const answeredIndices: number[] = [];
     const wrongQuestions: any[] = [];
     
     questions.forEach((q, idx) => {
       const userChoice = answers[idx];
       if (userChoice) {
-        attempted++;
+        attemptedCount++;
         answeredIndices.push(q.originalIndex);
         if (userChoice === q.correctAnswer) {
           correct++;
@@ -138,12 +139,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
       }
     });
 
-    const incorrect = attempted - correct;
-    const percentage = attempted > 0 ? (correct / attempted) * 100 : 0;
+    const incorrect = attemptedCount - correct;
+    const percentage = attemptedCount > 0 ? (correct / attemptedCount) * 100 : 0;
 
     setResults({
       correct,
-      attempted,
+      attempted: attemptedCount,
       incorrect,
       total: questions.length,
       percentage: Math.round(percentage),
@@ -152,16 +153,31 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
     setSubmitted(true);
 
-    if (!userData?.regId || answeredIndices.length === 0) return;
+    if (!userData?.regId || attemptedCount === 0) return;
 
     try {
+      const timestamp = Date.now();
+      
+      // 1. Detailed History (includes indices for progress tracking)
       await addDoc(collection(db, "student", userData.regId, "progress", paperId, "history"), {
         score: correct,
         totalInSession: questions.length,
-        attempted: attempted,
+        attempted: attemptedCount,
         answeredIndices: answeredIndices,
-        timestamp: Date.now()
+        timestamp
       });
+
+      // 2. Simplified Report for Admin (as requested - only numbers, no question content)
+      await addDoc(collection(db, "student", userData.regId, "report"), {
+        paperId: paperId,
+        paperName: paper?.name || "Unknown Paper",
+        attempted: attemptedCount,
+        correct,
+        incorrect,
+        percentage: Math.round(percentage),
+        timestamp
+      });
+
     } catch (err) {
       console.error("Failed to save progress", err);
     }
@@ -189,7 +205,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         <CardContent className="p-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Questions in Session</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Qs in Session</p>
               <p className="text-2xl font-black">{results.total}</p>
             </div>
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
@@ -243,7 +259,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             Back to Dashboard
           </Button>
           <Button variant="outline" className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
-            Retake Remaining
+            Retake / Continue
           </Button>
         </CardFooter>
       </Card>

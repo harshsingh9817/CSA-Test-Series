@@ -1,14 +1,16 @@
+
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
-import { UserPlus, Users, Activity, FileText, Settings, LogOut } from "lucide-react";
+import { UserPlus, Users, Activity, FileText, Settings, LogOut, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import StudentManager from "@/components/admin/StudentManager";
 import ActiveSessions from "@/components/admin/ActiveSessions";
 import PaperManager from "@/components/admin/PaperManager";
+import ReportManager from "@/components/admin/ReportManager";
 import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
@@ -52,7 +54,7 @@ export default function AdminDashboard() {
               <p className="text-sm font-medium">{userData.name}</p>
               <p className="text-xs text-muted-foreground capitalize">{userData.role}</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={logout} title="Logout">
+            <Button variant="ghost" size="icon" onClick={() => logout()} title="Logout">
               <LogOut className="h-5 w-5 text-destructive" />
             </Button>
           </div>
@@ -62,18 +64,22 @@ export default function AdminDashboard() {
       <main className="container mx-auto px-4 py-8">
         <Tabs defaultValue="students" className="space-y-6" onValueChange={setActiveTab}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-2 rounded-xl border shadow-sm">
-            <TabsList className="grid grid-cols-2 md:grid-cols-4 w-full md:w-auto h-auto p-1 bg-muted/50">
+            <TabsList className="grid grid-cols-2 md:grid-cols-5 w-full md:w-auto h-auto p-1 bg-muted/50">
               <TabsTrigger value="students" className="flex items-center gap-2 py-2 data-[state=active]:bg-primary data-[state=active]:text-white">
                 <Users className="h-4 w-4" />
                 <span>Students</span>
               </TabsTrigger>
+              <TabsTrigger value="reports" className="flex items-center gap-2 py-2 data-[state=active]:bg-primary data-[state=active]:text-white">
+                <BarChart3 className="h-4 w-4" />
+                <span>Progress</span>
+              </TabsTrigger>
               <TabsTrigger value="active" className="flex items-center gap-2 py-2 data-[state=active]:bg-primary data-[state=active]:text-white">
                 <Activity className="h-4 w-4" />
-                <span>Current Active</span>
+                <span>Active</span>
               </TabsTrigger>
               <TabsTrigger value="questions" className="flex items-center gap-2 py-2 data-[state=active]:bg-primary data-[state=active]:text-white">
                 <FileText className="h-4 w-4" />
-                <span>Questions</span>
+                <span>Papers</span>
               </TabsTrigger>
               <TabsTrigger value="settings" className="flex items-center gap-2 py-2 data-[state=active]:bg-primary data-[state=active]:text-white">
                 <Settings className="h-4 w-4" />
@@ -84,6 +90,10 @@ export default function AdminDashboard() {
 
           <TabsContent value="students" className="mt-0">
             <StudentManager />
+          </TabsContent>
+
+          <TabsContent value="reports" className="mt-0">
+            <ReportManager />
           </TabsContent>
 
           <TabsContent value="active" className="mt-0">
