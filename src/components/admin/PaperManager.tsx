@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FilePlus, Github, Info, Trash2, RefreshCw, Loader2 } from "lucide-react";
+import { FilePlus, Github, Info, Trash2, RefreshCw, Loader2, Tag } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 
@@ -51,7 +51,6 @@ export default function PaperManager() {
     const rawUrl = getRawGithubUrl(githubLink);
 
     try {
-      // Direct fetch from raw URL to count questions
       const response = await fetch(rawUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch JSON: ${response.statusText}. Ensure the link is correct and public.`);
@@ -62,19 +61,24 @@ export default function PaperManager() {
         throw new Error("Invalid format: The JSON file must be an array of questions.");
       }
 
+      // Automatically detect unique topics
+      const topicSet = new Set<string>();
+      jsonData.forEach((q: any) => {
+        if (q.topic) topicSet.add(q.topic);
+      });
+      const topics = Array.from(topicSet);
+
       await addDoc(collection(db, "papers"), {
         name: paperName,
         url: rawUrl,
         count: jsonData.length,
         createdAt: Date.now(),
-        topics: [], // AI removed as requested
-        categories: [], // AI removed as requested
-        summary: "" // AI removed as requested
+        topics: topics,
       });
 
       toast({ 
         title: "Paper Imported", 
-        description: `"${paperName}" added with ${jsonData.length} questions.` 
+        description: `"${paperName}" added with ${jsonData.length} questions and ${topics.length} topics.` 
       });
       setPaperName("");
       setGithubLink("");
@@ -167,14 +171,15 @@ export default function PaperManager() {
                 <TableHeader className="bg-muted/50">
                   <TableRow>
                     <TableHead className="font-bold">Paper Name</TableHead>
-                    <TableHead className="font-bold">Items</TableHead>
+                    <TableHead className="font-bold">Topics</TableHead>
+                    <TableHead className="font-bold">Total Qs</TableHead>
                     <TableHead className="text-right font-bold">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {papers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={3} className="text-center py-16 text-muted-foreground italic">
+                      <TableCell colSpan={4} className="text-center py-16 text-muted-foreground italic">
                         No papers found. Add one on the left.
                       </TableCell>
                     </TableRow>
@@ -182,6 +187,12 @@ export default function PaperManager() {
                     papers.map((paper) => (
                       <TableRow key={paper.id} className="hover:bg-muted/30">
                         <TableCell className="font-semibold">{paper.name}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Tag className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-xs">{paper.topics?.length || 0}</span>
+                          </div>
+                        </TableCell>
                         <TableCell><Badge variant="secondary">{paper.count} Qs</Badge></TableCell>
                         <TableCell className="text-right">
                           <Button 
