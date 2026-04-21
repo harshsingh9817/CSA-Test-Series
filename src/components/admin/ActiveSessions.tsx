@@ -1,9 +1,7 @@
-
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
-import { collection, onSnapshot, doc, query, where, updateDoc } from "firebase/firestore";
+import { getDatabase, ref, onValue, update } from "firebase/database";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,22 +15,29 @@ export default function ActiveSessions() {
   const [refreshing, setRefreshing] = useState(false);
   const [terminatingId, setTerminatingId] = useState<string | null>(null);
   const { toast } = useToast();
+  const database = getDatabase();
 
   useEffect(() => {
-    // Real-time listener for active sessions
-    const q = query(collection(db, "userSessions"), where("isActive", "==", true));
-    
-    const unsub = onSnapshot(q, (snapshot) => {
-      const list = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setSessions(list);
+    const sessionsRef = ref(database, 'userSessions');
+    const unsub = onValue(sessionsRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        // Filter for active sessions only
+        const list = Object.keys(data)
+          .map(key => ({ ...data[key], id: key }))
+          .filter(s => s.isActive === true);
+        setSessions(list);
+      } else {
+        setSessions([]);
+      }
       setLoading(false);
       setRefreshing(false);
     }, (error) => {
-      console.error("Sessions listener error:", error);
+      console.error("RTDB Sessions listener error:", error);
       setLoading(false);
     });
     return () => unsub();
-  }, []);
+  }, [database]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -45,11 +50,10 @@ export default function ActiveSessions() {
     if (confirm(`Force logout ${name}?`)) {
       setTerminatingId(uid);
       try {
-        const sessionRef = doc(db, "userSessions", uid);
-        await updateDoc(sessionRef, { 
+        const sessionRef = ref(database, `userSessions/${uid}`);
+        await update(sessionRef, { 
           isActive: false, 
           lastActive: Date.now(),
-          terminatedAt: new Date().toISOString(),
           status: "terminated"
         });
         
@@ -62,7 +66,7 @@ export default function ActiveSessions() {
         toast({ 
           variant: "destructive",
           title: "Action Failed", 
-          description: "Permissions issue or session record error." 
+          description: "Database connection error." 
         });
       } finally {
         setTerminatingId(null);
@@ -78,7 +82,7 @@ export default function ActiveSessions() {
             <ShieldAlert className="h-5 w-5 text-secondary" />
             <CardTitle>Active User Sessions</CardTitle>
           </div>
-          <CardDescription>Monitor and manage currently logged-in users.</CardDescription>
+          <CardDescription>Monitor and manage currently logged-in users via Real-time DB.</CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />

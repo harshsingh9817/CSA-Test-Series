@@ -1,10 +1,10 @@
-
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useRef } from "react";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "./firebase";
-import { doc, onSnapshot, setDoc, updateDoc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, getDoc } from "firebase/firestore";
+import { getDatabase, ref, onValue, set, update, onDisconnect } from "firebase/database";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
@@ -26,27 +26,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [userData, setUserData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [localSessionId] = useState(() => Math.random().toString(36).substring(7));
-  const [forceLogoutHandled, setForceLogoutHandled] = useState(false);
   const router = useRouter();
   
   const isSessionSynced = useRef(false);
+  const database = getDatabase();
 
   const logout = async () => {
     const currentUser = auth.currentUser;
     if (currentUser) {
       try {
-        const sessionRef = doc(db, "userSessions", currentUser.uid);
-        const snap = await getDoc(sessionRef);
-        if (snap.exists() && snap.data().sessionId === localSessionId) {
-          await updateDoc(sessionRef, { 
-            isActive: false, 
-            lastActive: Date.now(),
-            status: "logged_out"
-          });
-        }
-      } catch (e) {
-        // Silently fail on permission errors
-      }
+        const sessionRef = ref(database, `userSessions/${currentUser.uid}`);
+        await update(sessionRef, { 
+          isActive: false, 
+          lastActive: Date.now(),
+          status: "logged_out"
+        });
+      } catch (e) {}
     }
     await signOut(auth);
     setUser(null);
@@ -63,37 +58,35 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeSession) unsubscribeSession();
       
-      setForceLogoutHandled(false);
       isSessionSynced.current = false;
 
       if (firebaseUser) {
         setUser(firebaseUser);
         setLoading(true);
 
-        const sessionRef = doc(db, "userSessions", firebaseUser.uid);
-        unsubscribeSession = onSnapshot(sessionRef, (snap) => {
-          if (snap.exists() && !forceLogoutHandled) {
-            const sessionData = snap.data();
+        // RTDB Session Listener
+        const sessionRef = ref(database, `userSessions/${firebaseUser.uid}`);
+        unsubscribeSession = onValue(sessionRef, (snap) => {
+          if (snap.exists()) {
+            const sessionData = snap.val();
             
-            // 1. Force logout if admin set isActive to false for OUR session
-            if (sessionData.sessionId === localSessionId && sessionData.isActive === false) {
-              setForceLogoutHandled(true);
-              logout();
-              alert("Your session has been terminated by an administrator.");
-              return;
-            }
-
-            // 2. Conflict check: Logout if another device logged in (ONLY after we synced our own)
-            if (isSessionSynced.current && sessionData.sessionId !== localSessionId && sessionData.isActive === true) {
-              setForceLogoutHandled(true);
-              logout();
-              alert("New login detected. You have been logged out from this device.");
-              return;
+            // Kick out logic
+            if (isSessionSynced.current) {
+              if (sessionData.sessionId === localSessionId && sessionData.isActive === false) {
+                logout();
+                alert("Your session has been terminated by an administrator.");
+                return;
+              }
+              if (sessionData.sessionId !== localSessionId && sessionData.isActive === true) {
+                logout();
+                alert("New login detected. You have been logged out from this device.");
+                return;
+              }
             }
           }
         });
 
-        // Load profile
+        // Load Firestore Profile
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
@@ -116,7 +109,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   setUserData(null);
                 }
                 setLoading(false);
-              }, (err) => {
+              }, () => {
                 setUserData(null);
                 setLoading(false);
               });
@@ -127,7 +120,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               setLoading(false);
             }
           }
-        }, (err) => {
+        }, () => {
           setUserData(null);
           setLoading(false);
         });
@@ -143,12 +136,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeSession) unsubscribeSession();
     };
-  }, [localSessionId]);
+  }, [localSessionId, database]);
 
   const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
-    const sessionRef = doc(db, "userSessions", uid);
+    const sessionRef = ref(database, `userSessions/${uid}`);
     try {
-      await setDoc(sessionRef, {
+      // Automatic cleanup on disconnect
+      onDisconnect(sessionRef).update({
+        isActive: false,
+        lastActive: Date.now(),
+        status: "disconnected"
+      });
+
+      await set(sessionRef, {
         id: uid,
         userId: uid,
         userType: role,
@@ -162,12 +162,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         role: role,
         lastActive: Date.now(),
         status: "active"
-      }, { merge: true });
+      });
       
-      // Mark as synced so conflict detection can start
       isSessionSynced.current = true;
     } catch (e) {
-      console.warn("Session sync failed:", e);
+      console.warn("RTDB Session sync failed:", e);
     }
   };
 
