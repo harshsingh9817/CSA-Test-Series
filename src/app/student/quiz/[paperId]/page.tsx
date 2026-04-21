@@ -12,10 +12,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Trophy, Target, XCircle, Info, Loader2, ListFilter } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/sheet";
 
 export default function QuizPage({ params }: { params: Promise<{ paperId: string }> }) {
   const { paperId } = use(params);
@@ -56,7 +55,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
-        // Get unique completed indices across all history
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const completedIndices = new Set<number>();
         progressSnap.forEach(doc => {
@@ -83,15 +81,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           };
         });
 
-        // Filter out completed questions
         let remainingQuestions = allQuestions.filter((q: any) => !completedIndices.has(q.originalIndex));
 
-        // If all questions in paper are done, allow retaking all of them
         if (remainingQuestions.length === 0) {
           remainingQuestions = allQuestions;
         }
 
-        // Limit to chunks of 100 for better performance
         setQuestions(remainingQuestions.slice(0, 100));
         setLoading(false);
       } catch (err: any) {
@@ -155,7 +150,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
     if (!userData?.regId || answeredIndices.length === 0) return;
 
-    // Save only answered questions to progress
     try {
       await addDoc(collection(db, "student", userData.regId, "progress", paperId, "history"), {
         score: correct,
@@ -185,18 +179,17 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           <div className="flex justify-center mb-4">
             <Trophy className="h-12 w-12 text-yellow-500" />
           </div>
-          <CardTitle className="text-3xl font-black text-primary">Assessment Result</CardTitle>
-          <CardDescription className="text-base font-bold text-muted-foreground">{userData?.name}</CardDescription>
+          <CardTitle className="text-3xl font-black text-primary">Results: {userData?.name}</CardTitle>
           <p className="text-sm font-medium mt-1">Paper: {paper?.name}</p>
         </CardHeader>
         <CardContent className="p-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Questions in Session</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Session Size</p>
               <p className="text-2xl font-black">{results.total}</p>
             </div>
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Attempted</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Answered</p>
               <p className="text-2xl font-black">{results.attempted}</p>
             </div>
             <div className="bg-green-50 p-4 rounded-xl text-center border border-green-100">
@@ -209,12 +202,9 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             </div>
           </div>
 
-          <div className="space-y-4 mb-10">
-            <div className="flex justify-between items-end">
-              <p className="text-sm font-bold text-muted-foreground">Accuracy Score</p>
-              <p className="text-3xl font-black text-primary">{results.percentage}%</p>
-            </div>
-            <Progress value={results.percentage} className="h-4 rounded-full" />
+          <div className="text-center space-y-2 mb-10">
+            <p className="text-sm font-bold text-muted-foreground">Session Accuracy</p>
+            <p className="text-5xl font-black text-primary">{results.percentage}%</p>
           </div>
 
           {results.wrongQuestions.length > 0 && (
@@ -249,7 +239,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             Back to Dashboard
           </Button>
           <Button variant="outline" className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
-            Retake Remaining Questions
+            Try New Set
           </Button>
         </CardFooter>
       </Card>
@@ -257,7 +247,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   );
 
   const currentQ = questions[currentIndex];
-  const progressPercent = ((currentIndex + 1) / questions.length) * 100;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -271,12 +260,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             <Sheet>
               <SheetTrigger asChild>
                 <Button variant="outline" className="gap-2">
-                  <ListFilter className="h-4 w-4" /> Navigator
+                  <ListFilter className="h-4 w-4" /> Jump to Question
                 </Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-[300px] sm:w-[400px]">
                 <SheetHeader>
-                  <SheetTitle>Jump to Question</SheetTitle>
+                  <SheetTitle>Select Question</SheetTitle>
                 </SheetHeader>
                 <div className="py-6">
                   <ScrollArea className="h-[70vh]">
@@ -297,12 +286,9 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               </SheetContent>
             </Sheet>
             <Button variant="default" className="bg-secondary text-white font-bold" onClick={handleSubmit}>
-              Finish Session
+              Finish
             </Button>
           </div>
-        </div>
-        <div className="container mx-auto px-4 mt-4">
-          <Progress value={progressPercent} className="h-1.5" />
         </div>
       </header>
 
@@ -310,8 +296,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         <Card className="shadow-lg border-none overflow-hidden">
           <CardHeader className="border-b bg-muted/20 pb-8">
             <div className="flex justify-between items-start mb-4">
-              <Badge variant="secondary">Item {currentIndex + 1} of {questions.length}</Badge>
-              <span className="text-[10px] font-mono text-muted-foreground uppercase">Bank ID: #{currentQ?.originalIndex}</span>
+              <Badge variant="secondary">Question {currentIndex + 1}</Badge>
             </div>
             <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed">
               {currentQ?.question}

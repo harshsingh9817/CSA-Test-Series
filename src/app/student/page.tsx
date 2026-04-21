@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { GraduationCap, BookOpen, CheckCircle2, PlayCircle, LogOut, Clock, Loader2, History, Target } from "lucide-react";
 import Link from "next/link";
-import { Progress } from "@/components/ui/progress";
 import { useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -31,7 +30,6 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!user || !userData || userData.role !== "student") return;
 
-    // Fetch Papers
     const unsubPapers = onSnapshot(collection(db, "papers"), async (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setPapers(list);
@@ -41,7 +39,6 @@ export default function StudentDashboard() {
 
       for (const p of list) {
         try {
-          // Fetch history for each paper
           const hQuery = query(
             collection(db, "student", userData.regId, "progress", p.id, "history"),
             orderBy("timestamp", "desc")
@@ -63,12 +60,11 @@ export default function StudentDashboard() {
           });
           
           prog[p.id] = {
-            completedCount: answeredIndices.size,
-            total: p.count || 0
+            completedCount: answeredIndices.size
           };
         } catch (e) {
           console.error("Error fetching progress for paper", p.id, e);
-          prog[p.id] = { completedCount: 0, total: p.count || 0 };
+          prog[p.id] = { completedCount: 0 };
         }
       }
       
@@ -137,13 +133,13 @@ export default function StudentDashboard() {
           <Card className="border-t-4 border-t-secondary">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-secondary" /> Mastery Progress
+                <CheckCircle2 className="h-5 w-5 text-secondary" /> Practice Progress
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="text-center py-4">
                 <span className="text-4xl font-bold text-primary">{totalQuestionsDone}</span>
-                <p className="text-sm text-muted-foreground">Unique Questions Done</p>
+                <p className="text-sm text-muted-foreground">Unique Questions Answered</p>
               </div>
             </CardContent>
           </Card>
@@ -171,29 +167,25 @@ export default function StudentDashboard() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {papers.map((paper) => {
-                  const prog = progressData[paper.id] || { completedCount: 0, total: paper.count || 0 };
-                  const pct = Math.round((prog.completedCount / prog.total) * 100) || 0;
+                  const prog = progressData[paper.id] || { completedCount: 0 };
                   
                   return (
                     <Card key={paper.id} className="hover:shadow-md transition-shadow group border-t-4 border-t-transparent hover:border-t-primary">
                       <CardHeader>
-                        <div className="flex justify-between items-start">
-                          <CardTitle className="text-lg font-bold">{paper.name}</CardTitle>
-                          <Badge variant="outline">{paper.count} Qs</Badge>
-                        </div>
+                        <CardTitle className="text-lg font-bold">{paper.name}</CardTitle>
+                        <CardDescription>Practice session for {paper.name}</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-2">
-                        <div className="flex justify-between text-xs mb-1">
-                          <span>Unique Progress</span>
-                          <span className="font-semibold">{prog.completedCount} / {prog.total}</span>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Target className="h-4 w-4 text-primary" />
+                          <span>Progress: <span className="font-bold text-primary">{prog.completedCount}</span> Answered</span>
                         </div>
-                        <Progress value={pct} className="h-2" />
                       </CardContent>
                       <CardFooter>
                         <Link href={`/student/quiz/${paper.id}`} className="w-full">
                           <Button className="w-full group-hover:bg-primary transition-colors flex items-center gap-2">
                             <PlayCircle className="h-4 w-4" /> 
-                            {prog.completedCount >= prog.total && prog.total > 0 ? "Retake Whole Paper" : "Start Practice"}
+                            Start Practice
                           </Button>
                         </Link>
                       </CardFooter>
@@ -215,7 +207,7 @@ export default function StudentDashboard() {
                         <th className="px-6 py-4">Date & Time</th>
                         <th className="px-6 py-4">Attempted</th>
                         <th className="px-6 py-4">Score</th>
-                        <th className="px-6 py-4 text-right">Result</th>
+                        <th className="px-6 py-4 text-right">Accuracy</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -234,11 +226,11 @@ export default function StudentDashboard() {
                             </td>
                             <td className="px-6 py-4">{entry.attempted} Qs</td>
                             <td className="px-6 py-4 font-bold text-primary">
-                              {entry.score} / {entry.totalInSession}
+                              {entry.score} / {entry.attempted}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              <Badge variant={entry.score / entry.totalInSession >= 0.4 ? "default" : "destructive"}>
-                                {Math.round((entry.score / entry.totalInSession) * 100)}%
+                              <Badge variant={entry.score / entry.attempted >= 0.4 ? "default" : "destructive"}>
+                                {Math.round((entry.score / entry.attempted) * 100)}%
                               </Badge>
                             </td>
                           </tr>

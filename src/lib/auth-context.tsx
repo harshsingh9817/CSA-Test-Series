@@ -29,7 +29,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [forceLogoutHandled, setForceLogoutHandled] = useState(false);
   const router = useRouter();
   
-  // Ref to track if we've successfully established our current session in Firestore
   const isSessionSynced = useRef(false);
 
   const logout = async () => {
@@ -38,7 +37,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         const sessionRef = doc(db, "userSessions", currentUser.uid);
         const snap = await getDoc(sessionRef);
-        // Only mark inactive if it's explicitly our session calling the logout
         if (snap.exists() && snap.data().sessionId === localSessionId) {
           await updateDoc(sessionRef, { 
             isActive: false, 
@@ -47,7 +45,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           });
         }
       } catch (e) {
-        // Silently fail on permission errors during logout
+        // Silently fail on permission errors
       }
     }
     await signOut(auth);
@@ -62,7 +60,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let unsubscribeSession: (() => void) | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      // Clean up previous listeners
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeSession) unsubscribeSession();
       
@@ -73,13 +70,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(firebaseUser);
         setLoading(true);
 
-        // 1. Session Enforcement Listener
         const sessionRef = doc(db, "userSessions", firebaseUser.uid);
         unsubscribeSession = onSnapshot(sessionRef, (snap) => {
           if (snap.exists() && !forceLogoutHandled) {
             const sessionData = snap.data();
             
-            // Scenario A: This IS our session ID, but it was set to inactive (Admin termination)
             if (sessionData.sessionId === localSessionId && sessionData.isActive === false) {
               setForceLogoutHandled(true);
               logout();
@@ -87,18 +82,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               return;
             }
 
-            // Scenario B: This is NOT our session ID, but it is ACTIVE (Someone else logged in)
-            // We only trigger this if WE have already established our session at least once
             if (isSessionSynced.current && sessionData.sessionId !== localSessionId && sessionData.isActive === true) {
               setForceLogoutHandled(true);
               logout();
-              alert("You have been logged out because a new login was detected on another device.");
+              alert("New login detected. You have been logged out from this device.");
               return;
             }
           }
         });
 
-        // 2. Fetch User Profile
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
@@ -169,7 +161,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         status: "active"
       }, { merge: true });
       
-      // Mark that we have established our identity for this browser instance
       isSessionSynced.current = true;
     } catch (e) {
       console.warn("Session sync failed:", e);
