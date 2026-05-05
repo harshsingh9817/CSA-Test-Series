@@ -29,14 +29,11 @@ export default function LoginPage() {
     setErrorMessage(null);
 
     try {
-      let loginEmail = identifier.trim();
-      const isRegId = !loginEmail.includes("@");
-      const cleanRegId = isRegId ? loginEmail.toUpperCase() : loginEmail.split("@")[0].toUpperCase();
+      const trimmedId = identifier.trim();
+      const isRegId = !trimmedId.includes("@");
+      const cleanRegId = isRegId ? trimmedId.toUpperCase() : trimmedId.split("@")[0].toUpperCase();
+      let loginEmail = isRegId ? `${cleanRegId.toLowerCase()}@csa.com` : trimmedId.toLowerCase();
       
-      if (isRegId) {
-        loginEmail = `${cleanRegId.toLowerCase()}@csa.com`;
-      }
-
       if (loginEmail.endsWith("@csa.com")) {
         // 1. Internal Authentication via Gateway
         try {
@@ -46,10 +43,16 @@ export default function LoginPage() {
         }
 
         // 2. Direct Password Verification from Firestore
-        const studentRef = doc(db, "student", cleanRegId);
-        const studentSnap = await getDoc(studentRef);
+        // Add a small retry for eventual consistency
+        let studentSnap;
+        for (let i = 0; i < 3; i++) {
+          const studentRef = doc(db, "student", cleanRegId);
+          studentSnap = await getDoc(studentRef);
+          if (studentSnap.exists()) break;
+          await new Promise(r => setTimeout(r, 500));
+        }
         
-        if (!studentSnap.exists()) {
+        if (!studentSnap || !studentSnap.exists()) {
           await signOut(auth);
           throw new Error("Profile document not found. Contact Admin.");
         }
@@ -60,14 +63,12 @@ export default function LoginPage() {
           throw new Error("Invalid system password.");
         }
         
-        // Verified - Proceed to portal
         router.push("/student");
       } else {
         // Administrator Login Logic
         const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
         const user = userCredential.user;
 
-        // Ensure owner email is registered as an admin in Firestore
         const primaryAdminEmail = "sunilsingh8896@gmail.com";
         if (loginEmail.toLowerCase() === primaryAdminEmail.toLowerCase()) {
           const adminRef = doc(db, "admins", user.uid);
@@ -75,7 +76,7 @@ export default function LoginPage() {
           if (!adminSnap.exists()) {
             await setDoc(adminRef, {
               id: user.uid,
-              email: loginEmail,
+              email: loginEmail.toLowerCase(),
               name: "Sunil Singh",
               role: "admin",
               createdAt: Date.now()
@@ -87,6 +88,7 @@ export default function LoginPage() {
     } catch (err: any) {
       console.error("Login process error:", err);
       setErrorMessage(err.message || "Invalid credentials.");
+      if (auth.currentUser) await signOut(auth);
     } finally {
       setLoading(false);
     }

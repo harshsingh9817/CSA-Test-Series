@@ -77,7 +77,7 @@ export default function StudentManager() {
       return;
     }
 
-    // Use a secondary app to create the Auth account without affecting current admin session
+    // Use a secondary app to create/check the Auth account
     const secondaryApp = initializeApp(firebaseConfig, "TempApp-" + Date.now());
     const secondaryAuth = getAuth(secondaryApp);
 
@@ -86,12 +86,9 @@ export default function StudentManager() {
         await createUserWithEmailAndPassword(secondaryAuth, studentEmail, GATEWAY_PASS);
         await signOut(secondaryAuth);
       } catch (authErr: any) {
-        // If email already exists, we skip creation and move to Firestore doc
         if (authErr.code !== 'auth/email-already-in-use') {
           throw authErr;
         }
-      } finally {
-        await deleteApp(secondaryApp);
       }
 
       const studentDoc = {
@@ -117,8 +114,8 @@ export default function StudentManager() {
     } catch (err: any) {
       console.error(err);
       toast({ variant: "destructive", title: "Add Failed", description: err.message });
-      try { if(secondaryApp) await deleteApp(secondaryApp); } catch (e) {}
     } finally {
+      try { await deleteApp(secondaryApp); } catch (e) {}
       setAdding(false);
     }
   };
@@ -137,12 +134,11 @@ export default function StudentManager() {
 
     setDeletingId(studentToDelete.id);
     try {
-      // Direct deletion of the student document in Firestore
       await deleteDoc(doc(db, "student", studentToDelete.id));
       toast({ title: "Deleted", description: `Student ${studentToDelete.id} removed successfully.` });
     } catch (err: any) {
       console.error("Delete error:", err);
-      toast({ variant: "destructive", title: "Error", description: "Failed to delete student profile. Check permissions." });
+      toast({ variant: "destructive", title: "Error", description: "Failed to delete student profile." });
     } finally {
       setDeletingId(null);
       setStudentToDelete(null);

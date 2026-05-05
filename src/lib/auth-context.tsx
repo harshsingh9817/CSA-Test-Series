@@ -5,7 +5,7 @@ import React, { createContext, useContext, useEffect, useState, useRef } from "r
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "./firebase";
 import { doc, onSnapshot } from "firebase/firestore";
-import { getDatabase, ref, onValue, set, update, onDisconnect, remove } from "firebase/database";
+import { getDatabase, ref, onValue, set, remove, onDisconnect } from "firebase/database";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
@@ -37,7 +37,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (currentUser) {
       try {
         const sessionRef = ref(database, `userSessions/${currentUser.uid}`);
-        await remove(sessionRef); // Fully delete the record on logout
+        await remove(sessionRef);
       } catch (e) {}
     }
     await signOut(auth);
@@ -61,13 +61,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(firebaseUser);
         setLoading(true);
 
-        // RTDB Session Listener
         const sessionRef = ref(database, `userSessions/${firebaseUser.uid}`);
         unsubscribeSession = onValue(sessionRef, (snap) => {
           if (snap.exists() && isSessionSynced.current) {
             const sessionData = snap.val();
-            
-            // Silent Kick-out Logic
             if (sessionData.isActive === false || sessionData.sessionId !== localSessionId) {
               logout(true);
               return;
@@ -75,7 +72,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           }
         });
 
-        // Load Firestore Profile
         const adminRef = doc(db, "admins", firebaseUser.uid);
         unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
           if (adminSnap.exists()) {
@@ -95,7 +91,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   setUserData(data);
                   syncSession(firebaseUser.uid, "student", data.name, firebaseUser.email);
                 } else {
-                  // Profile missing - Revoke access immediately
                   logout(true);
                 }
                 setLoading(false);
@@ -131,7 +126,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
     const sessionRef = ref(database, `userSessions/${uid}`);
     try {
-      // Automatic cleanup on disconnect
       onDisconnect(sessionRef).remove();
 
       await set(sessionRef, {
