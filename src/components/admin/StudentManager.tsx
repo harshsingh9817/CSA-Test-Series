@@ -5,14 +5,14 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
 import { firebaseConfig } from "@/firebase/config";
 import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "firebase/auth";
 import { collection, setDoc, deleteDoc, doc, onSnapshot } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, Loader2, RefreshCw, Info } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2, RefreshCw, Info, KeyRound } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,6 +32,9 @@ export default function StudentManager() {
   const [password, setPassword] = useState("");
   const [notice, setNotice] = useState("");
   const [adding, setAdding] = useState(false);
+
+  // Password Reset State
+  const [resettingId, setResettingId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "student"), (snapshot) => {
@@ -116,16 +119,36 @@ export default function StudentManager() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Delete student ${name}? \n\nNote: The profile will be removed. You can re-create it later using the same ID.`)) {
+    if (confirm(`Delete student ${name}? \n\nNote: The profile will be removed from the directory. The authentication account remains so you can re-link it later.`)) {
       try {
         await deleteDoc(doc(db, "student", id));
         toast({ 
           title: "Profile Deleted", 
-          description: "Firestore record removed. Auth account remains for security." 
+          description: "Record removed. Auth remains for re-linking security." 
         });
       } catch (err: any) {
         toast({ variant: "destructive", title: "Error", description: err.message });
       }
+    }
+  };
+
+  const handleResetPassword = async (email: string, studentName: string) => {
+    setResettingId(email);
+    const auth = getAuth();
+    try {
+      await sendPasswordResetEmail(auth, email);
+      toast({
+        title: "Reset Link Sent",
+        description: `Instructions sent to ${email} for ${studentName}.`
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Action Failed",
+        description: err.message
+      });
+    } finally {
+      setResettingId(null);
     }
   };
 
@@ -179,7 +202,7 @@ export default function StudentManager() {
                   <Input id="regId" placeholder="e.g. ST101" value={regId} onChange={(e) => setRegId(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-password">Password</Label>
+                  <Label htmlFor="new-password">Initial Password</Label>
                   <Input id="new-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
@@ -214,7 +237,7 @@ export default function StudentManager() {
                   <TableHead>Student Name</TableHead>
                   <TableHead>Course</TableHead>
                   <TableHead>Reg ID</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -225,13 +248,36 @@ export default function StudentManager() {
                 ) : (
                   filteredStudents.map((student) => (
                     <TableRow key={student.id}>
-                      <TableCell className="font-medium">{student.name}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{student.name}</span>
+                          <span className="text-[10px] text-muted-foreground">{student.email}</span>
+                        </div>
+                      </TableCell>
                       <TableCell>{student.course}</TableCell>
-                      <TableCell className="font-mono text-xs">{student.regId}</TableCell>
+                      <TableCell className="font-mono text-xs font-bold text-primary">{student.regId}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(student.id, student.name)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-primary hover:bg-primary/10" 
+                            title="Reset Password"
+                            onClick={() => handleResetPassword(student.email, student.name)}
+                            disabled={resettingId === student.email}
+                          >
+                            {resettingId === student.email ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="text-destructive hover:bg-destructive/10" 
+                            title="Delete Profile"
+                            onClick={() => handleDelete(student.id, student.name)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
