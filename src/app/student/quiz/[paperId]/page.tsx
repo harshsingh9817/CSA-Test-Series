@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Trophy, Target, XCircle, Loader2, ListFilter, Layers, BookOpen } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Trophy, Target, XCircle, Loader2, ListFilter, User } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -55,7 +55,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
-        // Fetch user progress
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const doneIndices = new Set<number>();
         progressSnap.forEach(doc => {
@@ -65,7 +64,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           }
         });
 
-        // Load all questions
         const res = await fetch(paperData.url);
         if (!res.ok) throw new Error("Failed to fetch questions");
         const raw = await res.json();
@@ -84,15 +82,9 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           };
         });
 
-        // GENERATE BALANCED MIXED SESSION
         let pool = allProcessed.filter((q: any) => !doneIndices.has(q.originalIndex));
-        
-        // If all questions used, allow retake of all
-        if (pool.length === 0) {
-          pool = allProcessed;
-        }
+        if (pool.length === 0) pool = allProcessed;
 
-        // Group available pool by topic
         const topicGroups: Record<string, any[]> = {};
         pool.forEach(q => {
           if (!topicGroups[q.topic]) topicGroups[q.topic] = [];
@@ -102,11 +94,8 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const selectedQuestions: any[] = [];
         const MAX_SESSION_SIZE = 100;
 
-        // Calculate weighted selection counts for each topic
-        // Topics with fewer questions get a higher proportional chance
         const topicWeights = Object.keys(topicGroups).map(topic => {
           const count = topicGroups[topic].length;
-          // Use square root to give smaller topics more weight proportionally
           const weight = Math.sqrt(count);
           return { topic, count, weight };
         });
@@ -114,17 +103,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const totalWeight = topicWeights.reduce((acc, tw) => acc + tw.weight, 0);
         
         topicWeights.forEach(tw => {
-          // Calculate quota for this topic
           let quota = Math.ceil((tw.weight / totalWeight) * MAX_SESSION_SIZE);
-          // Ensure we don't take more than available
           quota = Math.min(quota, tw.count);
-          
-          // Randomly pick 'quota' questions from this topic
           const shuffledGroup = [...topicGroups[tw.topic]].sort(() => Math.random() - 0.5);
           selectedQuestions.push(...shuffledGroup.slice(0, quota));
         });
 
-        // Final shuffle and trim to exactly 100 if overflowed due to Math.ceil
         const finalSession = selectedQuestions
           .sort(() => Math.random() - 0.5)
           .slice(0, MAX_SESSION_SIZE);
@@ -204,7 +188,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
       await addDoc(collection(db, "student", userData.regId, "report"), {
         paperId: paperId,
-        paperName: `${paper?.name} (Mixed Practice)`,
+        paperName: paper?.name || "Practice Set",
         attempted: attemptedCount,
         correct,
         incorrect,
@@ -220,7 +204,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center">
         <Loader2 className="w-10 h-10 border-primary animate-spin mx-auto mb-4 text-primary" />
-        <p className="text-primary font-medium">Generating Balanced Practice Set...</p>
+        <p className="text-primary font-medium">Preparing Session...</p>
       </div>
     </div>
   );
@@ -232,13 +216,15 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           <div className="flex justify-center mb-4">
             <Trophy className="h-12 w-12 text-yellow-500" />
           </div>
-          <CardTitle className="text-3xl font-black text-primary">Results: {userData?.name}</CardTitle>
-          <p className="text-sm font-medium mt-1">Balanced Mixed Session</p>
+          <CardTitle className="text-3xl font-black text-primary flex items-center justify-center gap-2">
+            <User className="h-6 w-6" /> {userData?.name}
+          </CardTitle>
+          <p className="text-sm font-medium mt-1">Practice Results Summary</p>
         </CardHeader>
         <CardContent className="p-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Qs in Session</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Total in Set</p>
               <p className="text-2xl font-black">{results.total}</p>
             </div>
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
@@ -256,7 +242,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           </div>
 
           <div className="text-center space-y-2 mb-10">
-            <p className="text-sm font-bold text-muted-foreground">Accuracy Percentage</p>
+            <p className="text-sm font-bold text-muted-foreground">Accuracy Score</p>
             <p className="text-5xl font-black text-primary">{results.percentage}%</p>
           </div>
 
@@ -276,11 +262,11 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="p-2 rounded bg-red-50 border border-red-100">
-                            <p className="text-[10px] font-bold text-red-600 uppercase">Your Choice ({q.userChoice})</p>
+                            <p className="text-[10px] font-bold text-red-600 uppercase">You Chose ({q.userChoice})</p>
                             <p className="text-sm">{q[`opt${q.userChoice}`]}</p>
                           </div>
                           <div className="p-2 rounded bg-green-50 border border-green-100">
-                            <p className="text-[10px] font-bold text-green-600 uppercase">Correct Answer ({q.correctAnswer})</p>
+                            <p className="text-[10px] font-bold text-green-600 uppercase">Correct ({q.correctAnswer})</p>
                             <p className="text-sm">{q[`opt${q.correctAnswer}`]}</p>
                           </div>
                         </div>
@@ -294,10 +280,10 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         </CardContent>
         <CardFooter className="bg-muted/10 p-6 flex flex-col sm:flex-row gap-4">
           <Button className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
-            Start New Session
+            Try New Set
           </Button>
           <Button variant="outline" className="w-full h-12 font-bold" onClick={() => router.push("/student")}>
-            Back to Dashboard
+            Finish Review
           </Button>
         </CardFooter>
       </Card>
@@ -311,12 +297,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
       <header className="bg-white border-b py-4 shadow-sm sticky top-0 z-20">
         <div className="container mx-auto px-4 flex items-center justify-between">
           <Button variant="ghost" onClick={() => router.push("/student")} className="gap-2">
-            <ChevronLeft className="h-4 w-4" /> Exit Practice
+            <ChevronLeft className="h-4 w-4" /> Exit
           </Button>
           
           <div className="flex flex-col items-center">
-            <span className="text-xs font-bold text-primary uppercase tracking-tighter">{paper?.name}</span>
-            <span className="text-[10px] text-muted-foreground font-medium">Mixed Practice Set</span>
+            <span className="text-xs font-bold text-primary uppercase">{paper?.name}</span>
+            <span className="text-[10px] text-muted-foreground">Mixed Balanced Set</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -328,7 +314,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               </SheetTrigger>
               <SheetContent side="right" className="w-[300px] sm:w-[400px]">
                 <SheetHeader>
-                  <SheetTitle>Question Navigator</SheetTitle>
+                  <SheetTitle>Practice Navigator</SheetTitle>
                 </SheetHeader>
                 <div className="py-6">
                   <ScrollArea className="h-[70vh]">
@@ -349,7 +335,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               </SheetContent>
             </Sheet>
             <Button variant="default" size="sm" className="bg-secondary text-white font-bold" onClick={handleSubmit}>
-              Finish
+              Submit
             </Button>
           </div>
         </div>
@@ -359,7 +345,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         <Card className="shadow-lg border-none overflow-hidden">
           <CardHeader className="border-b bg-muted/20 pb-8">
             <div className="flex justify-between items-start mb-4">
-              <Badge variant="secondary">Question {currentIndex + 1} of {questions.length}</Badge>
+              <Badge variant="secondary">Q {currentIndex + 1} of {questions.length}</Badge>
               <Badge variant="outline" className="text-[10px] uppercase font-bold">{currentQ?.topic}</Badge>
             </div>
             <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed">
@@ -387,7 +373,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
                   <div className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shrink-0 ${answers[currentIndex] === opt.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
                     {opt.id}
                   </div>
-                  <Label htmlFor={`opt-${opt.id}`} className="flex-1 cursor-pointer font-medium text-base leading-snug">
+                  <Label htmlFor={`opt-${opt.id}`} className="flex-1 cursor-pointer font-medium text-base">
                     {opt.label}
                   </Label>
                 </div>
@@ -402,12 +388,12 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           </Button>
           
           <div className="text-[10px] font-black bg-muted px-4 py-2 rounded-full text-muted-foreground hidden sm:block">
-            {questions.length - Object.keys(answers).length} Questions Remaining
+            {questions.length - Object.keys(answers).length} Left
           </div>
 
           {currentIndex === questions.length - 1 ? (
             <Button size="lg" className="w-32 bg-primary text-white font-bold" onClick={handleSubmit}>
-              Submit
+              Finish
             </Button>
           ) : (
             <Button size="lg" onClick={handleNext} className="w-32 font-bold">
@@ -419,4 +405,3 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     </div>
   );
 }
-

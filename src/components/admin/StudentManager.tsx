@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -11,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, Loader2, RefreshCw } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2, RefreshCw, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,7 +45,6 @@ export default function StudentManager() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    // Real-time listener handles the data, this just provides visual feedback
     setTimeout(() => setRefreshing(false), 500);
   };
 
@@ -65,10 +65,7 @@ export default function StudentManager() {
     const secondaryAuth = getAuth(secondaryApp);
 
     try {
-      await createUserWithEmailAndPassword(secondaryAuth, studentEmail, password);
-      await signOut(secondaryAuth);
-      await deleteApp(secondaryApp);
-
+      // Create student document first
       const studentDoc = {
         id: cleanRegId,
         name,
@@ -79,11 +76,24 @@ export default function StudentManager() {
         email: studentEmail,
       };
 
+      try {
+        await createUserWithEmailAndPassword(secondaryAuth, studentEmail, password);
+        await signOut(secondaryAuth);
+      } catch (authErr: any) {
+        if (authErr.code === 'auth/email-already-in-use') {
+          console.log("Account already exists in Auth, re-linking profile.");
+        } else {
+          throw authErr;
+        }
+      } finally {
+        await deleteApp(secondaryApp);
+      }
+
       await setDoc(doc(db, "student", cleanRegId), studentDoc);
 
       toast({ 
-        title: "Student Created", 
-        description: `Account ${cleanRegId} is ready.` 
+        title: "Account Ready", 
+        description: `Student ${cleanRegId} has been configured.` 
       });
       
       setIsAddOpen(false);
@@ -93,9 +103,7 @@ export default function StudentManager() {
       toast({ 
         variant: "destructive", 
         title: "Creation Failed", 
-        description: err.code === 'auth/email-already-in-use' 
-          ? "This Student ID is already in use." 
-          : err.message 
+        description: err.message 
       });
       try { await deleteApp(secondaryApp); } catch (e) {}
     } finally {
@@ -108,10 +116,13 @@ export default function StudentManager() {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Delete student ${name}?`)) {
+    if (confirm(`Delete student ${name}? \n\nNote: The profile will be removed. You can re-create it later using the same ID.`)) {
       try {
         await deleteDoc(doc(db, "student", id));
-        toast({ title: "Profile Deleted", description: "Record removed." });
+        toast({ 
+          title: "Profile Deleted", 
+          description: "Firestore record removed. Auth account remains for security." 
+        });
       } catch (err: any) {
         toast({ variant: "destructive", title: "Error", description: err.message });
       }
@@ -149,7 +160,7 @@ export default function StudentManager() {
               <DialogHeader>
                 <DialogTitle>Create Student Account</DialogTitle>
                 <DialogDescription>
-                  Login will be <strong>[ID]@csa.com</strong>.
+                  Registration IDs are unique. Login: <strong>[ID]@csa.com</strong>.
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddStudent} className="space-y-4">
@@ -173,7 +184,11 @@ export default function StudentManager() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notice">Administrative Notice</Label>
-                  <Textarea id="notice" placeholder="Notes..." value={notice} onChange={(e) => setNotice(e.target.value)} />
+                  <Textarea id="notice" placeholder="Display notes to student..." value={notice} onChange={(e) => setNotice(e.target.value)} />
+                </div>
+                <div className="p-3 bg-muted/50 rounded-lg flex gap-2">
+                  <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                  <p className="text-[10px] text-muted-foreground">If this ID was previously used, the system will re-link the existing account.</p>
                 </div>
                 <DialogFooter>
                   <Button type="submit" disabled={adding} className="w-full">
