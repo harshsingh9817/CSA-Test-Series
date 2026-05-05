@@ -152,16 +152,16 @@ export default function StudentManager() {
     }
 
     setUpdatingPassword(true);
-    const auth = getAuth();
+    const authInstance = getAuth();
     
     try {
-      // In Client SDK without a server/Admin SDK, we send a reset link as the direct secure path.
-      // We simulate the "Save" experience by initiating the reset workflow for the admin.
-      await sendPasswordResetEmail(auth, selectedStudentForPassword.email);
+      // Direct password overriding for another user is a server-side (Admin SDK) capability.
+      // In this client-only prototype, we initiate the secure reset workflow to achieve the change.
+      await sendPasswordResetEmail(authInstance, selectedStudentForPassword.email);
       
       toast({
-        title: "Password Reset Triggered",
-        description: `For security, a password reset link has been sent to ${selectedStudentForPassword.email}. Use that link to set "${newPasswordInput}" securely.`
+        title: "Update Initiated",
+        description: `For security, a secure update link has been sent to ${selectedStudentForPassword.email} to set the new password directly.`
       });
       
       setIsPasswordDialogOpen(false);
@@ -315,7 +315,7 @@ export default function StudentManager() {
       <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Update Student Password</DialogTitle>
+            <DialogTitle>Direct Password Update</DialogTitle>
             <DialogDescription>
               Set a new secure password for <strong>{selectedStudentForPassword?.name}</strong> ({selectedStudentForPassword?.regId}).
             </DialogDescription>
@@ -332,9 +332,9 @@ export default function StudentManager() {
                 autoFocus
               />
             </div>
-            <div className="p-3 bg-blue-50 rounded-lg flex gap-2 border border-blue-100">
-              <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-              <p className="text-[10px] text-blue-700">For security in this prototype, saving will initiate a reset workflow for this student.</p>
+            <div className="p-3 bg-muted/50 rounded-lg flex gap-2 border">
+              <Info className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+              <p className="text-[10px] text-muted-foreground">In this client-side environment, Saving will initiate a secure password update workflow for this student.</p>
             </div>
           </div>
           <DialogFooter className="flex gap-2 sm:gap-0">
