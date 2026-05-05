@@ -12,9 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, ShieldAlert } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 
 const GATEWAY_PASS = "csa_secure_gateway_pass";
@@ -25,7 +26,11 @@ export default function StudentManager() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const { toast } = useToast();
+  
+  // Dialog States
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState<any>(null);
 
   // New Student Form
   const [name, setName] = useState("");
@@ -112,7 +117,7 @@ export default function StudentManager() {
     } catch (err: any) {
       console.error(err);
       toast({ variant: "destructive", title: "Add Failed", description: err.message });
-      try { await deleteApp(secondaryApp); } catch (e) {}
+      try { if(secondaryApp) await deleteApp(secondaryApp); } catch (e) {}
     } finally {
       setAdding(false);
     }
@@ -122,19 +127,26 @@ export default function StudentManager() {
     setName(""); setCourse(""); setRegId(""); setPassword(""); setNotice("");
   };
 
-  const handleDelete = async (studentId: string, studentName: string) => {
-    if (!window.confirm(`Delete ${studentName} (${studentId}) permanently?`)) return;
+  const initiateDelete = (student: any) => {
+    setStudentToDelete(student);
+    setIsDeleteAlertOpen(true);
+  };
 
-    setDeletingId(studentId);
+  const confirmDelete = async () => {
+    if (!studentToDelete) return;
+
+    setDeletingId(studentToDelete.id);
     try {
-      // Direct deletion of the student document
-      await deleteDoc(doc(db, "student", studentId));
-      toast({ title: "Deleted", description: `Student ${studentId} removed.` });
+      // Direct deletion of the student document in Firestore
+      await deleteDoc(doc(db, "student", studentToDelete.id));
+      toast({ title: "Deleted", description: `Student ${studentToDelete.id} removed successfully.` });
     } catch (err: any) {
       console.error("Delete error:", err);
-      toast({ variant: "destructive", title: "Error", description: "Failed to delete student profile." });
+      toast({ variant: "destructive", title: "Error", description: "Failed to delete student profile. Check permissions." });
     } finally {
       setDeletingId(null);
+      setStudentToDelete(null);
+      setIsDeleteAlertOpen(false);
     }
   };
 
@@ -263,7 +275,7 @@ export default function StudentManager() {
                             size="icon" 
                             disabled={deletingId === student.id}
                             className="h-9 w-9 text-destructive"
-                            onClick={() => handleDelete(student.id, student.name)}
+                            onClick={() => initiateDelete(student)}
                           >
                             {deletingId === student.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                           </Button>
@@ -278,6 +290,7 @@ export default function StudentManager() {
         </CardContent>
       </Card>
 
+      {/* Password Update Dialog */}
       <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -304,6 +317,30 @@ export default function StudentManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Alert */}
+      <AlertDialog open={isDeleteAlertOpen} onOpenChange={setIsDeleteAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" /> Confirm Deletion
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <span className="font-bold text-foreground">"{studentToDelete?.name}"</span>? 
+              This will permanently remove their profile and all associated exam history from the database.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmDelete}
+              className="bg-destructive hover:bg-destructive/90 text-white font-bold"
+            >
+              Yes, I Agree
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
