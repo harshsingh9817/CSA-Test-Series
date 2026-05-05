@@ -3,14 +3,15 @@
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, onSnapshot, orderBy } from "firebase/firestore";
+import { collection, query, getDocs, onSnapshot, orderBy } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, BarChart3, ChevronRight, User, Calendar, Target, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { Search, BarChart3, ChevronRight, User, Calendar, Target, CheckCircle2, XCircle, Loader2, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer } from 'recharts';
 
 export default function ReportManager() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,7 +21,6 @@ export default function ReportManager() {
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
 
-  // Search students as user types
   useEffect(() => {
     if (searchTerm.length < 2) {
       setStudents([]);
@@ -46,7 +46,7 @@ export default function ReportManager() {
     try {
       const q = query(
         collection(db, "student", student.regId, "report"),
-        orderBy("timestamp", "desc")
+        orderBy("timestamp", "asc")
       );
       const snap = await getDocs(q);
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -56,7 +56,12 @@ export default function ReportManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  const chartData = reports.map(r => ({
+    date: new Date(r.timestamp).toLocaleDateString(),
+    score: r.percentage,
+  }));
 
   const calculateOverall = () => {
     if (reports.length === 0) return { attempted: 0, correct: 0, incorrect: 0, avg: 0 };
@@ -76,7 +81,6 @@ export default function ReportManager() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      {/* Search Column */}
       <div className="md:col-span-1 space-y-6">
         <Card className="border-t-4 border-t-primary">
           <CardHeader>
@@ -128,7 +132,6 @@ export default function ReportManager() {
         </Card>
       </div>
 
-      {/* Report Column */}
       <div className="md:col-span-2 space-y-6">
         {selectedStudent ? (
           <>
@@ -163,13 +166,44 @@ export default function ReportManager() {
               </Card>
             </div>
 
+            {reports.length > 1 && (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-primary" /> Performance Trend
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="h-48 pt-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                      <XAxis dataKey="date" fontSize={10} hide />
+                      <YAxis fontSize={10} domain={[0, 100]} />
+                      <ChartTooltip 
+                        contentStyle={{ fontSize: '10px', borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                        formatter={(value) => [`${value}%`, 'Accuracy']}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="score" 
+                        stroke="hsl(var(--primary))" 
+                        strokeWidth={3} 
+                        dot={{ r: 4, fill: 'hsl(var(--primary))' }}
+                        activeDot={{ r: 6, strokeWidth: 0 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader className="flex flex-row items-center justify-between border-b pb-4">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <User className="h-5 w-5 text-primary" /> {selectedStudent.name}&apos;s Performance History
                   </CardTitle>
-                  <CardDescription>Detailed session summaries for {selectedStudent.regId}</CardDescription>
+                  <CardDescription>Detailed session summaries.</CardDescription>
                 </div>
                 <Badge variant="outline" className="font-mono">{reports.length} Sessions</Badge>
               </CardHeader>
@@ -181,7 +215,7 @@ export default function ReportManager() {
                   </div>
                 ) : reports.length === 0 ? (
                   <div className="text-center py-20 border-2 border-dashed rounded-xl">
-                    <p className="text-muted-foreground italic">No session reports found for this student.</p>
+                    <p className="text-muted-foreground italic">No session reports found.</p>
                   </div>
                 ) : (
                   <div className="rounded-xl border overflow-hidden">
@@ -190,13 +224,12 @@ export default function ReportManager() {
                         <TableRow>
                           <TableHead className="font-bold">Paper</TableHead>
                           <TableHead className="font-bold">Date</TableHead>
-                          <TableHead className="text-center font-bold">Attempted</TableHead>
                           <TableHead className="text-center font-bold">Score</TableHead>
                           <TableHead className="text-right font-bold">Accuracy</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {reports.map((report) => (
+                        {[...reports].reverse().map((report) => (
                           <TableRow key={report.id} className="hover:bg-muted/30">
                             <TableCell className="font-medium">{report.paperName}</TableCell>
                             <TableCell className="text-xs">
@@ -205,7 +238,6 @@ export default function ReportManager() {
                                 {new Date(report.timestamp).toLocaleDateString()}
                               </div>
                             </TableCell>
-                            <TableCell className="text-center font-semibold">{report.attempted}</TableCell>
                             <TableCell className="text-center font-bold text-primary">{report.correct} / {report.attempted}</TableCell>
                             <TableCell className="text-right">
                               <Badge variant={report.percentage >= 70 ? "default" : report.percentage >= 40 ? "secondary" : "destructive"}>
@@ -227,7 +259,7 @@ export default function ReportManager() {
               <BarChart3 className="h-16 w-16 text-primary/30" />
             </div>
             <h3 className="text-xl font-black text-primary mb-2">Student Progress Center</h3>
-            <p className="text-muted-foreground max-w-sm">Select a student from the left directory to view their comprehensive exam reports and accuracy analysis.</p>
+            <p className="text-muted-foreground max-w-sm">Select a student from the left directory to view their performance analysis and trends.</p>
           </div>
         )}
       </div>

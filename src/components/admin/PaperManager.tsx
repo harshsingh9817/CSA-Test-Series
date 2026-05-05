@@ -3,15 +3,17 @@
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, onSnapshot, deleteDoc, doc } from "firebase/firestore";
+import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FilePlus, Github, Info, Trash2, RefreshCw, Loader2, Tag } from "lucide-react";
+import { FilePlus, Github, Info, Trash2, RefreshCw, Loader2, Tag, BrainCircuit, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { analyzeQuestionPaperContent } from "@/ai/flows/analyze-question-paper-content";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 export default function PaperManager() {
   const [papers, setPapers] = useState<any[]>([]);
@@ -19,6 +21,7 @@ export default function PaperManager() {
   const [githubLink, setGithubLink] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -61,7 +64,6 @@ export default function PaperManager() {
         throw new Error("Invalid format: The JSON file must be an array of questions.");
       }
 
-      // Automatically detect unique topics
       const topicSet = new Set<string>();
       jsonData.forEach((q: any) => {
         if (q.topic) topicSet.add(q.topic);
@@ -78,7 +80,7 @@ export default function PaperManager() {
 
       toast({ 
         title: "Paper Imported", 
-        description: `"${paperName}" added with ${jsonData.length} questions and ${topics.length} topics.` 
+        description: `"${paperName}" added with ${jsonData.length} questions.` 
       });
       setPaperName("");
       setGithubLink("");
@@ -87,10 +89,37 @@ export default function PaperManager() {
       toast({ 
         variant: "destructive", 
         title: "Import Failed", 
-        description: err.message || "An error occurred while fetching the question paper." 
+        description: err.message 
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAIAnalysis = async (paper: any) => {
+    setAnalyzingId(paper.id);
+    try {
+      const result = await analyzeQuestionPaperContent({ githubJsonLink: paper.url });
+      
+      const paperRef = doc(db, "papers", paper.id);
+      await updateDoc(paperRef, {
+        aiAnalysis: result,
+        lastAnalyzed: Date.now()
+      });
+
+      toast({
+        title: "Analysis Complete",
+        description: `AI has successfully analyzed "${paper.name}".`
+      });
+    } catch (err: any) {
+      console.error("AI Analysis Error:", err);
+      toast({
+        variant: "destructive",
+        title: "Analysis Failed",
+        description: "The AI service encountered an error."
+      });
+    } finally {
+      setAnalyzingId(null);
     }
   };
 
@@ -137,18 +166,9 @@ export default function PaperManager() {
                   onChange={(e) => setGithubLink(e.target.value)}
                 />
               </div>
-              <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                <Info className="h-3 w-3" />
-                Automatically converts blob links to raw links.
-              </p>
             </div>
             <Button className="w-full font-bold" onClick={handleAddPaper} disabled={loading || !paperName || !githubLink}>
-              {loading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Importing...
-                </>
-              ) : "Import Paper"}
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Import Paper"}
             </Button>
           </CardContent>
         </Card>
@@ -159,56 +179,89 @@ export default function PaperManager() {
           <CardHeader className="flex flex-row items-center justify-between border-b pb-4">
             <div>
               <CardTitle className="text-lg">Question Bank</CardTitle>
-              <CardDescription>Available papers for students.</CardDescription>
+              <CardDescription>Manage papers and AI insights.</CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
           </CardHeader>
           <CardContent className="pt-6">
-            <div className="rounded-xl border overflow-hidden shadow-sm">
-              <Table>
-                <TableHeader className="bg-muted/50">
-                  <TableRow>
-                    <TableHead className="font-bold">Paper Name</TableHead>
-                    <TableHead className="font-bold">Topics</TableHead>
-                    <TableHead className="font-bold">Total Qs</TableHead>
-                    <TableHead className="text-right font-bold">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {papers.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center py-16 text-muted-foreground italic">
-                        No papers found. Add one on the left.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    papers.map((paper) => (
-                      <TableRow key={paper.id} className="hover:bg-muted/30">
-                        <TableCell className="font-semibold">{paper.name}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Tag className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-xs">{paper.topics?.length || 0}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell><Badge variant="secondary">{paper.count} Qs</Badge></TableCell>
-                        <TableCell className="text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="text-destructive hover:bg-destructive/10" 
-                            onClick={() => deletePaper(paper.id, paper.name)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+            <div className="space-y-4">
+              {papers.length === 0 ? (
+                <div className="text-center py-16 text-muted-foreground italic border rounded-xl">
+                  No papers found.
+                </div>
+              ) : (
+                papers.map((paper) => (
+                  <Card key={paper.id} className="overflow-hidden">
+                    <div className="p-4 flex items-center justify-between bg-muted/20 border-b">
+                      <div className="flex flex-col">
+                        <span className="font-bold">{paper.name}</span>
+                        <span className="text-xs text-muted-foreground">{paper.count} Questions</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-8 gap-2" 
+                          onClick={() => handleAIAnalysis(paper)}
+                          disabled={analyzingId === paper.id}
+                        >
+                          {analyzingId === paper.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <BrainCircuit className="h-3 w-3" />}
+                          {paper.aiAnalysis ? "Re-Analyze" : "AI Insight"}
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 text-destructive" 
+                          onClick={() => deletePaper(paper.id, paper.name)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    {paper.aiAnalysis && (
+                      <div className="p-4 bg-white">
+                        <Collapsible>
+                          <CollapsibleTrigger className="flex items-center gap-2 text-sm font-bold text-primary hover:underline">
+                            <Sparkles className="h-4 w-4" /> View AI Report <ChevronDown className="h-3 w-3" />
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="pt-4 space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase">Key Topics</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {paper.aiAnalysis.topics.map((t: string, i: number) => (
+                                    <Badge key={i} variant="secondary" className="text-[10px]">{t}</Badge>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase">Formatting Status</p>
+                                {paper.aiAnalysis.formattingIssues.length > 0 ? (
+                                  <ul className="text-xs text-destructive list-disc list-inside">
+                                    {paper.aiAnalysis.formattingIssues.map((issue: string, i: number) => (
+                                      <li key={i}>{issue}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="text-xs text-green-600 font-medium">Clear of issues</p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="bg-primary/5 p-3 rounded-lg border border-primary/10">
+                              <p className="text-[10px] font-bold text-primary uppercase mb-1">AI Summary</p>
+                              <p className="text-xs italic leading-relaxed text-muted-foreground">
+                                {paper.aiAnalysis.summary}
+                              </p>
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </div>
+                    )}
+                  </Card>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
