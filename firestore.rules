@@ -8,7 +8,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email.lower() == "sunilsingh8896@gmail.com"
+      );
     }
     
     function isStudentOwner(regId) {
@@ -18,10 +21,8 @@ service cloud.firestore {
     }
 
     match /student/{regId} {
-      // Allow gets for login verification
       allow get: if isSignedIn();
       allow list: if isAdmin();
-      // Administrators have full control over documents
       allow create, update, delete: if isAdmin();
 
       match /report/{reportId} {

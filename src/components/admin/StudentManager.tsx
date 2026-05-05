@@ -12,11 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, ShieldAlert, AlertCircle } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const GATEWAY_PASS = "csa_secure_gateway_pass";
 
@@ -73,18 +72,16 @@ export default function StudentManager() {
       return;
     }
 
-    // Create a secondary app to handle auth without logging out the admin
-    const secondaryApp = initializeApp(firebaseConfig, "AddApp-" + Date.now());
+    // Use a secondary app to create the Auth account without affecting current admin session
+    const secondaryApp = initializeApp(firebaseConfig, "TempApp-" + Date.now());
     const secondaryAuth = getAuth(secondaryApp);
 
     try {
       try {
-        // Attempt to create the internal auth account
         await createUserWithEmailAndPassword(secondaryAuth, studentEmail, GATEWAY_PASS);
         await signOut(secondaryAuth);
       } catch (authErr: any) {
-        // If user already exists in Auth, we ignore it and proceed to create/update Firestore doc
-        // This allows reusing Registration IDs easily
+        // If email already exists, we skip creation and move to Firestore doc
         if (authErr.code !== 'auth/email-already-in-use') {
           throw authErr;
         }
@@ -103,23 +100,18 @@ export default function StudentManager() {
         email: studentEmail,
       };
 
-      // Create or overwrite the profile document
       await setDoc(doc(db, "student", cleanRegId), studentDoc);
 
       toast({ 
         title: "Profile Created", 
-        description: `Student ${cleanRegId} has been added successfully.` 
+        description: `Student ${cleanRegId} added/updated successfully.` 
       });
       
       setIsAddOpen(false);
       resetForm();
     } catch (err: any) {
       console.error(err);
-      toast({ 
-        variant: "destructive", 
-        title: "Action Failed", 
-        description: err.message 
-      });
+      toast({ variant: "destructive", title: "Add Failed", description: err.message });
       try { await deleteApp(secondaryApp); } catch (e) {}
     } finally {
       setAdding(false);
@@ -131,29 +123,16 @@ export default function StudentManager() {
   };
 
   const handleDelete = async (studentId: string, studentName: string) => {
-    // Direct and simple confirmation
-    if (!window.confirm(`Are you sure you want to PERMANENTLY delete the profile for ${studentName}?`)) {
-      return;
-    }
+    if (!window.confirm(`Delete ${studentName} (${studentId}) permanently?`)) return;
 
     setDeletingId(studentId);
-
     try {
-      // Direct Firestore document deletion
-      // This is the primary way to remove a student's access in this system
+      // Direct deletion of the student document
       await deleteDoc(doc(db, "student", studentId));
-      
-      toast({ 
-        title: "Student Deleted", 
-        description: `Profile for ${studentName} removed from directory.` 
-      });
+      toast({ title: "Deleted", description: `Student ${studentId} removed.` });
     } catch (err: any) {
-      console.error("Deletion error:", err);
-      toast({ 
-        variant: "destructive", 
-        title: "Delete Failed", 
-        description: "Could not remove document. Check permissions." 
-      });
+      console.error("Delete error:", err);
+      toast({ variant: "destructive", title: "Error", description: "Failed to delete student profile." });
     } finally {
       setDeletingId(null);
     }
@@ -166,16 +145,11 @@ export default function StudentManager() {
   };
 
   const handleSaveNewPassword = async () => {
-    if (!newPasswordInput) {
-      toast({ variant: "destructive", title: "Invalid", description: "Password cannot be empty." });
-      return;
-    }
-
+    if (!newPasswordInput) return;
     setUpdatingPassword(true);
     try {
-      const studentRef = doc(db, "student", selectedStudentForPassword.id);
-      await updateDoc(studentRef, { password: newPasswordInput });
-      toast({ title: "Updated", description: `Password changed for ${selectedStudentForPassword.name}.` });
+      await updateDoc(doc(db, "student", selectedStudentForPassword.id), { password: newPasswordInput });
+      toast({ title: "Updated", description: "Password changed successfully." });
       setIsPasswordDialogOpen(false);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Failed", description: err.message });
@@ -213,10 +187,8 @@ export default function StudentManager() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
-                <DialogTitle>Register New Student</DialogTitle>
-                <DialogDescription>
-                  Enter company details. Passwords are managed directly in this panel.
-                </DialogDescription>
+                <DialogTitle>Register Student</DialogTitle>
+                <DialogDescription>Direct management of company IDs and passwords.</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddStudent} className="space-y-4 pt-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -235,7 +207,7 @@ export default function StudentManager() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="new-password">System Password</Label>
-                  <Input id="new-password" type="text" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                  <Input id="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notice">Admin Remarks</Label>
@@ -255,7 +227,7 @@ export default function StudentManager() {
       <Card className="shadow-lg border-none">
         <CardHeader className="bg-primary/5 rounded-t-lg">
           <CardTitle className="text-xl text-primary font-black">Private Directory</CardTitle>
-          <CardDescription>Direct management of student access and credentials.</CardDescription>
+          <CardDescription>Manage access and credentials directly.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -271,38 +243,26 @@ export default function StudentManager() {
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" /> Syncing data...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-20 italic"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" /> Syncing...</TableCell></TableRow>
                 ) : filteredStudents.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic">No student profiles found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-20 italic text-muted-foreground">No students found.</TableCell></TableRow>
                 ) : (
                   filteredStudents.map((student) => (
                     <TableRow key={student.id} className="hover:bg-muted/30">
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-bold text-base">{student.name}</span>
-                          <span className="text-[10px] text-muted-foreground uppercase">{student.email}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-medium">{student.course}</TableCell>
+                      <TableCell className="font-bold">{student.name}</TableCell>
+                      <TableCell>{student.course}</TableCell>
                       <TableCell className="font-black text-primary">{student.regId}</TableCell>
                       <TableCell className="font-mono text-sm bg-muted/50 px-2 rounded">{student.password}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button 
-                            variant="outline" 
-                            size="icon" 
-                            className="h-9 w-9 text-primary hover:bg-primary/10 border-primary/20" 
-                            title="Direct Password Update"
-                            onClick={() => openPasswordDialog(student)}
-                          >
+                          <Button variant="outline" size="icon" className="h-9 w-9 text-primary" onClick={() => openPasswordDialog(student)}>
                             <KeyRound className="h-4 w-4" />
                           </Button>
                           <Button 
                             variant="outline" 
                             size="icon" 
                             disabled={deletingId === student.id}
-                            className="h-9 w-9 text-destructive hover:bg-destructive hover:text-white border-destructive/20" 
-                            title="Permanent Deletion"
+                            className="h-9 w-9 text-destructive"
                             onClick={() => handleDelete(student.id, student.name)}
                           >
                             {deletingId === student.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
@@ -322,32 +282,24 @@ export default function StudentManager() {
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5 text-primary" /> Direct Password Update
+              <ShieldAlert className="h-5 w-5 text-primary" /> Update Password
             </DialogTitle>
-            <DialogDescription>
-              Changing system password for <strong>{selectedStudentForPassword?.name}</strong>.
-            </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="manual-password">New Password</Label>
+              <Label>New Password for {selectedStudentForPassword?.name}</Label>
               <Input 
-                id="manual-password" 
                 type="text" 
-                placeholder="Enter new system password..." 
                 value={newPasswordInput}
                 onChange={(e) => setNewPasswordInput(e.target.value)}
                 className="h-11 font-mono"
-                autoFocus
               />
             </div>
           </div>
           <DialogFooter className="flex gap-2">
-            <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)} className="flex-1">
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)} className="flex-1">Cancel</Button>
             <Button onClick={handleSaveNewPassword} disabled={updatingPassword} className="flex-1 font-bold">
-              {updatingPassword ? <Loader2 className="animate-spin" /> : "Save Directly"}
+              {updatingPassword ? <Loader2 className="animate-spin" /> : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
