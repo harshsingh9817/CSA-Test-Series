@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { GraduationCap, ShieldCheck, AlertCircle, Loader2, Code2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+const GATEWAY_PASS = "csa_secure_gateway_pass";
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
@@ -35,23 +37,32 @@ export default function LoginPage() {
         loginEmail = `${cleanRegId.toLowerCase()}@csa.com`;
       }
 
-      // 1. Student Custom Password Validation
-      if (isRegId || loginEmail.endsWith("@csa.com")) {
+      if (loginEmail.endsWith("@csa.com")) {
+        // 1. Initial Authentication via Gateway
+        // We must sign in first to have permission to read the student document
+        try {
+          await signInWithEmailAndPassword(auth, loginEmail, GATEWAY_PASS);
+        } catch (authErr: any) {
+          throw new Error("Student account not found or access denied.");
+        }
+
+        // 2. Custom Password Verification from Firestore
         const studentRef = doc(db, "student", cleanRegId);
         const studentSnap = await getDoc(studentRef);
         
         if (!studentSnap.exists()) {
-          throw new Error("Student account not found.");
+          await signOut(auth);
+          throw new Error("Student profile is missing.");
         }
         
         const studentData = studentSnap.data();
         if (studentData.password !== password) {
+          await signOut(auth);
           throw new Error("Invalid credentials.");
         }
         
-        // Use a fixed internal password for Auth to allow Firestore access
-        // The real security gating happened above.
-        await signInWithEmailAndPassword(auth, loginEmail, "csa_secure_gateway_pass");
+        // Success - Student is authenticated and verified
+        router.push("/student");
       } else {
         // Administrator Login Logic
         const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
@@ -71,14 +82,11 @@ export default function LoginPage() {
               createdAt: Date.now()
             });
           }
-          router.push("/admin");
-          return;
         }
+        router.push("/admin");
       }
-
-      router.push("/");
     } catch (err: any) {
-      console.error("Login attempt failed:", err);
+      console.error("Login failed:", err);
       setErrorMessage(err.message || "Invalid credentials.");
     } finally {
       setLoading(false);

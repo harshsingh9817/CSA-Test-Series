@@ -11,7 +11,6 @@ service cloud.firestore {
       return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
     
-    // Helper to check if the authenticated user is the student owner of the path
     function isStudentOwner(regId) {
       return isSignedIn() && (
         request.auth.token.email.lower() == (regId.lower() + "@csa.com")
@@ -19,11 +18,11 @@ service cloud.firestore {
     }
 
     match /student/{regId} {
+      // Allow students to read their own profile to verify their custom password during login
       allow get: if isSignedIn() && (isAdmin() || isStudentOwner(regId));
       allow list: if isAdmin();
       allow create, update, delete: if isAdmin();
 
-      // Student Reports for Admin review
       match /report/{reportId} {
         allow get, list: if isSignedIn() && (isStudentOwner(regId) || isAdmin());
         allow create: if isSignedIn() && isStudentOwner(regId);
