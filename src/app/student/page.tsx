@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, getDocs, orderBy, query } from "firebase/firestore";
+import { collection, onSnapshot, getDocs, orderBy, query, limit } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,9 +39,11 @@ export default function StudentDashboard() {
 
       for (const p of list) {
         try {
+          // Fetch only latest history to determine progress and show in list
           const hQuery = query(
             collection(db, "student", userData.regId, "progress", p.id, "history"),
-            orderBy("timestamp", "desc")
+            orderBy("timestamp", "desc"),
+            limit(10)
           );
           const historySnap = await getDocs(hQuery);
           
@@ -63,7 +65,7 @@ export default function StudentDashboard() {
             completedCount: answeredIndices.size
           };
         } catch (e) {
-          console.error("Error fetching progress for paper", p.id, e);
+          // If permission is denied for specific papers, just skip and default to 0
           prog[p.id] = { completedCount: 0 };
         }
       }
