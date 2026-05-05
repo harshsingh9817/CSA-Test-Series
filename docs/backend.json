@@ -5,7 +5,7 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Student",
       "type": "object",
-      "description": "Represents a student user account, including their profile information and unique registration ID used for login.",
+      "description": "Represents a student user account, including their profile information, password, and unique registration ID used for login.",
       "properties": {
         "id": {
           "type": "string",
@@ -28,6 +28,10 @@
           "description": "Generated email for Auth lookup (e.g., ST101@csa.com).",
           "format": "email"
         },
+        "password": {
+          "type": "string",
+          "description": "The direct password for the student, manageable by administrators."
+        },
         "notice": {
           "type": "string",
           "description": "Administrative notes or remarks specific to this student."
@@ -38,7 +42,8 @@
         "name",
         "course",
         "regId",
-        "email"
+        "email",
+        "password"
       ]
     },
     "AdminUser": {

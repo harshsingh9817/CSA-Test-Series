@@ -6,7 +6,7 @@ import { db } from "@/lib/firebase";
 import { firebaseConfig } from "@/firebase/config";
 import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
-import { collection, setDoc, doc, onSnapshot } from "firebase/firestore";
+import { collection, setDoc, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,22 +72,13 @@ export default function StudentManager() {
     const secondaryAuth = getAuth(secondaryApp);
 
     try {
-      const studentDoc = {
-        id: cleanRegId,
-        name,
-        course,
-        regId: cleanRegId,
-        notice,
-        createdAt: Date.now(),
-        email: studentEmail,
-      };
-
+      // 1. Ensure Auth account exists with a fixed internal password
       try {
-        await createUserWithEmailAndPassword(secondaryAuth, studentEmail, password);
+        await createUserWithEmailAndPassword(secondaryAuth, studentEmail, "csa_secure_gateway_pass");
         await signOut(secondaryAuth);
       } catch (authErr: any) {
         if (authErr.code === 'auth/email-already-in-use') {
-          console.log("Account already exists in Auth, updating profile.");
+          console.log("Auth account already exists, continuing to update Firestore profile.");
         } else {
           throw authErr;
         }
@@ -95,11 +86,23 @@ export default function StudentManager() {
         await deleteApp(secondaryApp);
       }
 
+      // 2. Save complete profile to Firestore (including the direct password)
+      const studentDoc = {
+        id: cleanRegId,
+        name,
+        course,
+        regId: cleanRegId,
+        password, // Stored directly in Firestore for admin management
+        notice,
+        createdAt: Date.now(),
+        email: studentEmail,
+      };
+
       await setDoc(doc(db, "student", cleanRegId), studentDoc);
 
       toast({ 
-        title: "Account Ready", 
-        description: `Student ${cleanRegId} profile has been configured.` 
+        title: "Account Created", 
+        description: `Student ${cleanRegId} has been added to the directory.` 
       });
       
       setIsAddOpen(false);
@@ -122,7 +125,7 @@ export default function StudentManager() {
   };
 
   const handleDelete = (id: string, name: string) => {
-    if (confirm(`Revoke access for ${name}? \n\nThis will remove their Firestore profile. They will be logged out instantly and permanently unless re-added.`)) {
+    if (confirm(`Revoke access for ${name}? \n\nThis will remove their profile and instantly log them out.`)) {
       deleteDocumentNonBlocking(doc(db, "student", id));
       toast({ 
         title: "Access Revoked", 
@@ -133,37 +136,36 @@ export default function StudentManager() {
 
   const openPasswordDialog = (student: any) => {
     setSelectedStudentForPassword(student);
-    setNewPasswordInput("");
+    setNewPasswordInput(student.password || "");
     setIsPasswordDialogOpen(true);
   };
 
   const handleSaveNewPassword = async () => {
-    if (!newPasswordInput || newPasswordInput.length < 6) {
+    if (!newPasswordInput) {
       toast({ 
         variant: "destructive", 
         title: "Invalid Password", 
-        description: "Password must be at least 6 characters." 
+        description: "Password cannot be empty." 
       });
       return;
     }
 
     setUpdatingPassword(true);
     
-    // As it is a client-side app, we use a simulation here for direct password management UI
-    // while ensuring the UI workflow meets your requirements.
     try {
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const studentRef = doc(db, "student", selectedStudentForPassword.id);
+      await updateDoc(studentRef, { password: newPasswordInput });
       
       toast({
-        title: "Credentials Updated",
-        description: `Manual update request for ${selectedStudentForPassword.name} processed.`
+        title: "Password Updated",
+        description: `Credentials for ${selectedStudentForPassword.name} have been changed.`
       });
       
       setIsPasswordDialogOpen(false);
     } catch (err: any) {
       toast({
         variant: "destructive",
-        title: "Action Failed",
+        title: "Update Failed",
         description: err.message
       });
     } finally {
@@ -202,7 +204,7 @@ export default function StudentManager() {
               <DialogHeader>
                 <DialogTitle>Create Student Account</DialogTitle>
                 <DialogDescription>
-                  Registration IDs are unique. Account: <strong>[ID]@csa.com</strong>.
+                  Registration IDs are unique. User will login with ID and Password.
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddStudent} className="space-y-4">
@@ -221,8 +223,8 @@ export default function StudentManager() {
                   <Input id="regId" placeholder="e.g. ST101" value={regId} onChange={(e) => setRegId(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-password">Password</Label>
-                  <Input id="new-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                  <Label htmlFor="new-password">Login Password</Label>
+                  <Input id="new-password" type="text" value={password} onChange={(e) => setPassword(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notice">Notice</Label>
@@ -242,7 +244,7 @@ export default function StudentManager() {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg text-primary font-bold">Student Directory</CardTitle>
-          <CardDescription>Managed access control for @csa.com accounts.</CardDescription>
+          <CardDescription>Direct password management for assessment accounts.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-hidden">
@@ -252,14 +254,15 @@ export default function StudentManager() {
                   <TableHead>Student Name</TableHead>
                   <TableHead>Course</TableHead>
                   <TableHead>Reg ID</TableHead>
+                  <TableHead>Password</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={4} className="text-center py-10">Loading...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-10">Loading...</TableCell></TableRow>
                 ) : filteredStudents.length === 0 ? (
-                  <TableRow><TableCell colSpan={4} className="text-center py-10">No students found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-10">No students found.</TableCell></TableRow>
                 ) : (
                   filteredStudents.map((student) => (
                     <TableRow key={student.id}>
@@ -271,13 +274,14 @@ export default function StudentManager() {
                       </TableCell>
                       <TableCell>{student.course}</TableCell>
                       <TableCell className="font-mono text-xs font-bold text-primary">{student.regId}</TableCell>
+                      <TableCell className="font-mono text-xs">{student.password}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
                           <Button 
                             variant="ghost" 
                             size="icon" 
                             className="text-primary hover:bg-primary/10" 
-                            title="Update Password"
+                            title="Direct Password Update"
                             onClick={() => openPasswordDialog(student)}
                           >
                             <KeyRound className="h-4 w-4" />
@@ -305,9 +309,9 @@ export default function StudentManager() {
       <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Update Password</DialogTitle>
+            <DialogTitle>Update Login Password</DialogTitle>
             <DialogDescription>
-              Set new credentials for <strong>{selectedStudentForPassword?.name}</strong>.
+              Directly modify credentials for <strong>{selectedStudentForPassword?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
@@ -315,8 +319,8 @@ export default function StudentManager() {
               <Label htmlFor="manual-password">New Password</Label>
               <Input 
                 id="manual-password" 
-                type="password" 
-                placeholder="Direct password update..." 
+                type="text" 
+                placeholder="Enter new password..." 
                 value={newPasswordInput}
                 onChange={(e) => setNewPasswordInput(e.target.value)}
                 autoFocus

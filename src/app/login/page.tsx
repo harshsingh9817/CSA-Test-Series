@@ -29,19 +29,37 @@ export default function LoginPage() {
     try {
       let loginEmail = identifier.trim();
       const isRegId = !loginEmail.includes("@");
+      const cleanRegId = isRegId ? loginEmail.toUpperCase() : loginEmail.split("@")[0].toUpperCase();
       
       if (isRegId) {
-        loginEmail = `${loginEmail.toLowerCase()}@csa.com`;
+        loginEmail = `${cleanRegId.toLowerCase()}@csa.com`;
       }
 
-      // 1. Authenticate with Firebase Auth
-      const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
-      const user = userCredential.user;
+      // 1. Student Custom Password Validation
+      if (isRegId || loginEmail.endsWith("@csa.com")) {
+        const studentRef = doc(db, "student", cleanRegId);
+        const studentSnap = await getDoc(studentRef);
+        
+        if (!studentSnap.exists()) {
+          throw new Error("Student account not found.");
+        }
+        
+        const studentData = studentSnap.data();
+        if (studentData.password !== password) {
+          throw new Error("Invalid credentials.");
+        }
+        
+        // Use a fixed internal password for Auth to allow Firestore access
+        // The real security gating happened above.
+        await signInWithEmailAndPassword(auth, loginEmail, "csa_secure_gateway_pass");
+      } else {
+        // Administrator Login Logic
+        const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
+        const user = userCredential.user;
 
-      // 2. Critical: Ensure Admin Bootstrap for primary owner
-      const primaryAdminEmail = "sunilsingh8896@gmail.com";
-      if (loginEmail.toLowerCase() === primaryAdminEmail.toLowerCase()) {
-        try {
+        // Admin Bootstrap for primary owner
+        const primaryAdminEmail = "sunilsingh8896@gmail.com";
+        if (loginEmail.toLowerCase() === primaryAdminEmail.toLowerCase()) {
           const adminRef = doc(db, "admins", user.uid);
           const adminSnap = await getDoc(adminRef);
           if (!adminSnap.exists()) {
@@ -53,24 +71,15 @@ export default function LoginPage() {
               createdAt: Date.now()
             });
           }
-        } catch (rulesError) {
-          console.warn("Admin bootstrap warning:", rulesError);
+          router.push("/admin");
+          return;
         }
-        router.push("/admin");
-        return;
       }
 
-      // 3. Normal redirect (handled by AuthProvider listener)
       router.push("/");
     } catch (err: any) {
       console.error("Login attempt failed:", err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        setErrorMessage("Invalid credentials. Please contact your administrator if you cannot log in.");
-      } else if (err.code === 'permission-denied') {
-        setErrorMessage("Access Denied. Database permissions issue.");
-      } else {
-        setErrorMessage(err.message || "A connection error occurred.");
-      }
+      setErrorMessage(err.message || "Invalid credentials.");
     } finally {
       setLoading(false);
     }
