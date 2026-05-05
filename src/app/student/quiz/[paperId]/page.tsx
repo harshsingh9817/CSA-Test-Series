@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, use, useMemo } from "react";
+import React, { useState, useEffect, use } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, collection, addDoc, getDocs } from "firebase/firestore";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Trophy, Target, XCircle, Info, Loader2, ListFilter, Tag, BookOpen, Layers } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Trophy, Target, XCircle, Loader2, ListFilter, Layers, BookOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -23,12 +23,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
   const { toast } = useToast();
 
   const [paper, setPaper] = useState<any>(null);
-  const [allQuestions, setAllQuestions] = useState<any[]>([]);
   const [questions, setQuestions] = useState<any[]>([]);
-  const [completedIndices, setCompletedIndices] = useState<Set<number>>(new Set());
-  const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
-  const [topics, setTopics] = useState<any[]>([]);
-  
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
@@ -62,21 +57,20 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
         // Fetch user progress
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
-        const done = new Set<number>();
+        const doneIndices = new Set<number>();
         progressSnap.forEach(doc => {
           const data = doc.data();
           if (data.answeredIndices) {
-            data.answeredIndices.forEach((idx: number) => done.add(idx));
+            data.answeredIndices.forEach((idx: number) => doneIndices.add(idx));
           }
         });
-        setCompletedIndices(done);
 
-        // Load questions
+        // Load all questions
         const res = await fetch(paperData.url);
         if (!res.ok) throw new Error("Failed to fetch questions");
         const raw = await res.json();
 
-        const processed = raw.map((q: any, originalIndex: number) => {
+        const allProcessed = raw.map((q: any, originalIndex: number) => {
           const isBilingual = q.question_en && q.options;
           return {
             originalIndex,
@@ -90,43 +84,62 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           };
         });
 
-        setAllQuestions(processed);
+        // GENERATE BALANCED MIXED SESSION
+        let pool = allProcessed.filter((q: any) => !doneIndices.has(q.originalIndex));
+        
+        // If all questions used, allow retake of all
+        if (pool.length === 0) {
+          pool = allProcessed;
+        }
 
-        // Extract topics and counts
-        const topicMap: Record<string, { total: number; completed: number }> = {};
-        processed.forEach((q: any) => {
-          if (!topicMap[q.topic]) topicMap[q.topic] = { total: 0, completed: 0 };
-          topicMap[q.topic].total++;
-          if (done.has(q.originalIndex)) topicMap[q.topic].completed++;
+        // Group available pool by topic
+        const topicGroups: Record<string, any[]> = {};
+        pool.forEach(q => {
+          if (!topicGroups[q.topic]) topicGroups[q.topic] = [];
+          topicGroups[q.topic].push(q);
         });
 
-        setTopics(Object.entries(topicMap).map(([name, stats]) => ({ name, ...stats })));
+        const selectedQuestions: any[] = [];
+        const MAX_SESSION_SIZE = 100;
+
+        // Calculate weighted selection counts for each topic
+        // Topics with fewer questions get a higher proportional chance
+        const topicWeights = Object.keys(topicGroups).map(topic => {
+          const count = topicGroups[topic].length;
+          // Use square root to give smaller topics more weight proportionally
+          const weight = Math.sqrt(count);
+          return { topic, count, weight };
+        });
+
+        const totalWeight = topicWeights.reduce((acc, tw) => acc + tw.weight, 0);
+        
+        topicWeights.forEach(tw => {
+          // Calculate quota for this topic
+          let quota = Math.ceil((tw.weight / totalWeight) * MAX_SESSION_SIZE);
+          // Ensure we don't take more than available
+          quota = Math.min(quota, tw.count);
+          
+          // Randomly pick 'quota' questions from this topic
+          const shuffledGroup = [...topicGroups[tw.topic]].sort(() => Math.random() - 0.5);
+          selectedQuestions.push(...shuffledGroup.slice(0, quota));
+        });
+
+        // Final shuffle and trim to exactly 100 if overflowed due to Math.ceil
+        const finalSession = selectedQuestions
+          .sort(() => Math.random() - 0.5)
+          .slice(0, MAX_SESSION_SIZE);
+
+        setQuestions(finalSession);
         setLoading(false);
       } catch (err: any) {
         console.error("Load error:", err);
-        toast({ variant: "destructive", title: "Error", description: "Failed to load quiz." });
+        toast({ variant: "destructive", title: "Error", description: "Failed to load quiz data." });
         router.push("/student");
       }
     };
 
     loadQuizData();
   }, [paperId, user, userData, toast, router]);
-
-  const startTopic = (topicName: string) => {
-    const topicQuestions = allQuestions.filter(q => q.topic === topicName && !completedIndices.has(q.originalIndex));
-    
-    // If all questions in this topic are done, offer them all again (retake)
-    if (topicQuestions.length === 0) {
-      setQuestions(allQuestions.filter(q => q.topic === topicName).slice(0, 100));
-    } else {
-      setQuestions(topicQuestions.slice(0, 100));
-    }
-    
-    setSelectedTopic(topicName);
-    setCurrentIndex(0);
-    setAnswers({});
-    setSubmitted(false);
-  };
 
   const handleNext = () => {
     if (currentIndex < questions.length - 1) {
@@ -191,7 +204,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
       await addDoc(collection(db, "student", userData.regId, "report"), {
         paperId: paperId,
-        paperName: `${paper?.name} (${selectedTopic})`,
+        paperName: `${paper?.name} (Mixed Practice)`,
         attempted: attemptedCount,
         correct,
         incorrect,
@@ -207,52 +220,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center">
         <Loader2 className="w-10 h-10 border-primary animate-spin mx-auto mb-4 text-primary" />
-        <p className="text-primary font-medium">Preparing Session...</p>
-      </div>
-    </div>
-  );
-
-  // Topic Selection View
-  if (!selectedTopic) return (
-    <div className="min-h-screen bg-background p-4 sm:p-8">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => router.push("/student")}>
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-black text-primary">{paper?.name}</h1>
-              <p className="text-sm text-muted-foreground">Select a topic to start your practice session.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {topics.map((t) => (
-            <Card key={t.name} className="hover:shadow-md transition-all group cursor-pointer border-l-4 border-l-transparent hover:border-l-primary" onClick={() => startTopic(t.name)}>
-              <CardContent className="p-6 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="p-3 bg-primary/5 rounded-xl group-hover:bg-primary/10 transition-colors">
-                    <Layers className="h-6 w-6 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-lg group-hover:text-primary transition-colors">{t.name}</h3>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="secondary" className="text-[10px] font-bold">
-                        {t.completed} Completed
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">in this topic</span>
-                    </div>
-                  </div>
-                </div>
-                <Button variant="ghost" size="icon" className="group-hover:translate-x-1 transition-transform">
-                  <ArrowRight className="h-5 w-5 text-primary" />
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <p className="text-primary font-medium">Generating Balanced Practice Set...</p>
       </div>
     </div>
   );
@@ -265,7 +233,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
             <Trophy className="h-12 w-12 text-yellow-500" />
           </div>
           <CardTitle className="text-3xl font-black text-primary">Results: {userData?.name}</CardTitle>
-          <p className="text-sm font-medium mt-1">Topic: {selectedTopic}</p>
+          <p className="text-sm font-medium mt-1">Balanced Mixed Session</p>
         </CardHeader>
         <CardContent className="p-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -297,34 +265,39 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               <h3 className="font-black text-xl border-b pb-2 flex items-center gap-2">
                 <XCircle className="text-red-500 h-5 w-5" /> Mistake Analysis
               </h3>
-              <div className="space-y-4">
-                {results.wrongQuestions.map((q, i) => (
-                  <Card key={i} className="border-l-4 border-l-red-500">
-                    <CardContent className="p-4 space-y-3">
-                      <p className="font-bold text-sm">Q: {q.question}</p>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="p-2 rounded bg-red-50 border border-red-100">
-                          <p className="text-[10px] font-bold text-red-600 uppercase">Your Choice ({q.userChoice})</p>
-                          <p className="text-sm">{q[`opt${q.userChoice}`]}</p>
+              <ScrollArea className="h-[400px] pr-4">
+                <div className="space-y-4">
+                  {results.wrongQuestions.map((q, i) => (
+                    <Card key={i} className="border-l-4 border-l-red-500">
+                      <CardContent className="p-4 space-y-3">
+                        <div className="flex justify-between items-start gap-2">
+                          <p className="font-bold text-sm">Q: {q.question}</p>
+                          <Badge variant="outline" className="text-[10px] shrink-0">{q.topic}</Badge>
                         </div>
-                        <div className="p-2 rounded bg-green-50 border border-green-100">
-                          <p className="text-[10px] font-bold text-green-600 uppercase">Correct Answer ({q.correctAnswer})</p>
-                          <p className="text-sm">{q[`opt${q.correctAnswer}`]}</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="p-2 rounded bg-red-50 border border-red-100">
+                            <p className="text-[10px] font-bold text-red-600 uppercase">Your Choice ({q.userChoice})</p>
+                            <p className="text-sm">{q[`opt${q.userChoice}`]}</p>
+                          </div>
+                          <div className="p-2 rounded bg-green-50 border border-green-100">
+                            <p className="text-[10px] font-bold text-green-600 uppercase">Correct Answer ({q.correctAnswer})</p>
+                            <p className="text-sm">{q[`opt${q.correctAnswer}`]}</p>
+                          </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </ScrollArea>
             </div>
           )}
         </CardContent>
         <CardFooter className="bg-muted/10 p-6 flex flex-col sm:flex-row gap-4">
-          <Button className="w-full h-12 font-bold" onClick={() => setSelectedTopic(null)}>
-            Back to Topics
+          <Button className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
+            Start New Session
           </Button>
           <Button variant="outline" className="w-full h-12 font-bold" onClick={() => router.push("/student")}>
-            Dashboard
+            Back to Dashboard
           </Button>
         </CardFooter>
       </Card>
@@ -337,13 +310,13 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     <div className="min-h-screen bg-background flex flex-col">
       <header className="bg-white border-b py-4 shadow-sm sticky top-0 z-20">
         <div className="container mx-auto px-4 flex items-center justify-between">
-          <Button variant="ghost" onClick={() => setSelectedTopic(null)} className="gap-2">
-            <ChevronLeft className="h-4 w-4" /> Change Topic
+          <Button variant="ghost" onClick={() => router.push("/student")} className="gap-2">
+            <ChevronLeft className="h-4 w-4" /> Exit Practice
           </Button>
           
           <div className="flex flex-col items-center">
             <span className="text-xs font-bold text-primary uppercase tracking-tighter">{paper?.name}</span>
-            <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[150px]">{selectedTopic}</span>
+            <span className="text-[10px] text-muted-foreground font-medium">Mixed Practice Set</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -387,6 +360,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           <CardHeader className="border-b bg-muted/20 pb-8">
             <div className="flex justify-between items-start mb-4">
               <Badge variant="secondary">Question {currentIndex + 1} of {questions.length}</Badge>
+              <Badge variant="outline" className="text-[10px] uppercase font-bold">{currentQ?.topic}</Badge>
             </div>
             <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed">
               {currentQ?.question}
@@ -428,7 +402,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           </Button>
           
           <div className="text-[10px] font-black bg-muted px-4 py-2 rounded-full text-muted-foreground hidden sm:block">
-            TOPIC: {selectedTopic}
+            {questions.length - Object.keys(answers).length} Questions Remaining
           </div>
 
           {currentIndex === questions.length - 1 ? (
@@ -445,3 +419,4 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     </div>
   );
 }
+
