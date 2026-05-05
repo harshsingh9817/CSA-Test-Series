@@ -56,6 +56,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const paperData = paperSnap.data();
         setPaper(paperData);
 
+        // Fetch user history to avoid repetition
         const progressSnap = await getDocs(collection(db, "student", userData.regId, "progress", paperId, "history"));
         const doneIndices = new Set<number>();
         progressSnap.forEach(doc => {
@@ -65,6 +66,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           }
         });
 
+        // Fetch questions from the GitHub link
         const res = await fetch(paperData.url);
         if (!res.ok) throw new Error("Failed to fetch questions");
         const raw = await res.json();
@@ -83,9 +85,13 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           };
         });
 
+        // Filter pool: prioritze un-answered, then reset if all are done
         let pool = allProcessed.filter((q: any) => !doneIndices.has(q.originalIndex));
-        if (pool.length === 0) pool = allProcessed;
+        if (pool.length === 0) {
+           pool = allProcessed; // Reset paper if student completed everything
+        }
 
+        // Group pool by topic for proportional selection
         const topicGroups: Record<string, any[]> = {};
         pool.forEach(q => {
           if (!topicGroups[q.topic]) topicGroups[q.topic] = [];
@@ -95,21 +101,22 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const selectedQuestions: any[] = [];
         const MAX_SESSION_SIZE = 100;
 
-        const topicWeights = Object.keys(topicGroups).map(topic => {
-          const count = topicGroups[topic].length;
-          const weight = Math.sqrt(count);
-          return { topic, count, weight };
-        });
-
-        const totalWeight = topicWeights.reduce((acc, tw) => acc + tw.weight, 0);
+        // Implement weighted proportional selection
+        const topicList = Object.keys(topicGroups);
+        const totalPoolSize = pool.length;
         
-        topicWeights.forEach(tw => {
-          let quota = Math.ceil((tw.weight / totalWeight) * MAX_SESSION_SIZE);
-          quota = Math.min(quota, tw.count);
-          const shuffledGroup = [...topicGroups[tw.topic]].sort(() => Math.random() - 0.5);
+        // Calculate dynamic quota per topic (bias towards smaller topics to ensure variety)
+        topicList.forEach(topic => {
+          const topicPool = topicGroups[topic];
+          // Proportional share based on sqrt to boost smaller topics in the mix
+          let quota = Math.ceil((Math.sqrt(topicPool.length) / topicList.reduce((acc, t) => acc + Math.sqrt(topicGroups[t].length), 0)) * MAX_SESSION_SIZE);
+          
+          quota = Math.min(quota, topicPool.length);
+          const shuffledGroup = [...topicPool].sort(() => Math.random() - 0.5);
           selectedQuestions.push(...shuffledGroup.slice(0, quota));
         });
 
+        // Final shuffle and trim to exactly 100 (or less if pool is small)
         const finalSession = selectedQuestions
           .sort(() => Math.random() - 0.5)
           .slice(0, MAX_SESSION_SIZE);
@@ -177,7 +184,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
     if (!userData?.regId || attemptedCount === 0) return;
 
-    // Use non-blocking updates for reliable progress saving
+    // Save progress and report
     const timestamp = Date.now();
     const historyColRef = collection(db, "student", userData.regId, "progress", paperId, "history");
     const reportColRef = collection(db, "student", userData.regId, "report");
@@ -205,7 +212,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center">
         <Loader2 className="w-10 h-10 border-primary animate-spin mx-auto mb-4 text-primary" />
-        <p className="text-primary font-medium">Preparing Session...</p>
+        <p className="text-primary font-medium">Preparing Balanced Session...</p>
       </div>
     </div>
   );
@@ -225,7 +232,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         <CardContent className="p-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Total in Set</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Set Size</p>
               <p className="text-2xl font-black">{results.total}</p>
             </div>
             <div className="bg-muted/30 p-4 rounded-xl text-center border">
@@ -243,14 +250,14 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           </div>
 
           <div className="text-center space-y-2 mb-10">
-            <p className="text-sm font-bold text-muted-foreground">Accuracy Score</p>
+            <p className="text-sm font-bold text-muted-foreground">Overall Accuracy</p>
             <p className="text-5xl font-black text-primary">{results.percentage}%</p>
           </div>
 
           {results.wrongQuestions.length > 0 && (
             <div className="space-y-6">
               <h3 className="font-black text-xl border-b pb-2 flex items-center gap-2">
-                <XCircle className="text-red-500 h-5 w-5" /> Mistake Analysis
+                <XCircle className="text-red-500 h-5 w-5" /> Detailed Mistake Review
               </h3>
               <ScrollArea className="h-[400px] pr-4">
                 <div className="space-y-4">
@@ -263,11 +270,11 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="p-2 rounded bg-red-50 border border-red-100">
-                            <p className="text-[10px] font-bold text-red-600 uppercase">You Chose ({q.userChoice})</p>
+                            <p className="text-[10px] font-bold text-red-600 uppercase">Your Answer ({q.userChoice})</p>
                             <p className="text-sm">{q[`opt${q.userChoice}`]}</p>
                           </div>
                           <div className="p-2 rounded bg-green-50 border border-green-100">
-                            <p className="text-[10px] font-bold text-green-600 uppercase">Correct ({q.correctAnswer})</p>
+                            <p className="text-[10px] font-bold text-green-600 uppercase">Correct Answer ({q.correctAnswer})</p>
                             <p className="text-sm">{q[`opt${q.correctAnswer}`]}</p>
                           </div>
                         </div>
@@ -281,10 +288,10 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         </CardContent>
         <CardFooter className="bg-muted/10 p-6 flex flex-col sm:flex-row gap-4">
           <Button className="w-full h-12 font-bold" onClick={() => window.location.reload()}>
-            Try New Set
+            Start New Set
           </Button>
           <Button variant="outline" className="w-full h-12 font-bold" onClick={() => router.push("/student")}>
-            Finish Review
+            Back to Dashboard
           </Button>
         </CardFooter>
       </Card>
@@ -303,7 +310,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           
           <div className="flex flex-col items-center">
             <span className="text-xs font-bold text-primary uppercase">{paper?.name}</span>
-            <span className="text-[10px] text-muted-foreground">Mixed Balanced Set</span>
+            <span className="text-[10px] text-muted-foreground">Balanced Practice Set</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -346,7 +353,7 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         <Card className="shadow-lg border-none overflow-hidden">
           <CardHeader className="border-b bg-muted/20 pb-8">
             <div className="flex justify-between items-start mb-4">
-              <Badge variant="secondary">Q {currentIndex + 1} of {questions.length}</Badge>
+              <Badge variant="secondary">Question {currentIndex + 1} of {questions.length}</Badge>
               <Badge variant="outline" className="text-[10px] uppercase font-bold">{currentQ?.topic}</Badge>
             </div>
             <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed">
@@ -385,11 +392,11 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
         <div className="flex justify-between items-center mt-8">
           <Button variant="outline" size="lg" onClick={handlePrev} disabled={currentIndex === 0} className="w-32 font-bold">
-            <ArrowLeft className="h-4 w-4 mr-2" /> Prev
+            <ArrowLeft className="h-4 w-4 mr-2" /> Previous
           </Button>
           
           <div className="text-[10px] font-black bg-muted px-4 py-2 rounded-full text-muted-foreground hidden sm:block">
-            {questions.length - Object.keys(answers).length} Left
+            {questions.length - Object.keys(answers).length} Questions Remaining
           </div>
 
           {currentIndex === questions.length - 1 ? (

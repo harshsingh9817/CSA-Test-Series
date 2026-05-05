@@ -37,8 +37,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (currentUser) {
       try {
         const sessionRef = ref(database, `userSessions/${currentUser.uid}`);
-        // If manual logout, we can remove the record or mark as inactive
-        await remove(sessionRef);
+        await remove(sessionRef); // Fully delete the record on logout
       } catch (e) {}
     }
     await signOut(auth);
@@ -68,9 +67,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (snap.exists() && isSessionSynced.current) {
             const sessionData = snap.val();
             
-            // Silent Kick-out Logic:
-            // 1. If session is marked inactive (e.g. terminated by admin)
-            // 2. If session ID has changed (e.g. logged in elsewhere)
+            // Silent Kick-out Logic
             if (sessionData.isActive === false || sessionData.sessionId !== localSessionId) {
               logout(true);
               return;
@@ -133,12 +130,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
     const sessionRef = ref(database, `userSessions/${uid}`);
     try {
-      // Automatic cleanup on disconnect
-      onDisconnect(sessionRef).update({
-        isActive: false,
-        lastActive: Date.now(),
-        status: "disconnected"
-      });
+      // Automatic cleanup on disconnect - delete the record entirely
+      onDisconnect(sessionRef).remove();
 
       await set(sessionRef, {
         id: uid,

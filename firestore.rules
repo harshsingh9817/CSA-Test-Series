@@ -12,15 +12,16 @@ service cloud.firestore {
     }
     
     // Helper to check if the authenticated user is the student owner of the path
+    // Optimized to check email pattern directly to avoid expensive get() calls in list queries
     function isStudentOwner(regId) {
       return isSignedIn() && (
-        get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email
+        request.auth.token.email.lower() == (regId.lower() + "@csa.com")
       );
     }
 
     match /student/{regId} {
       // Allow user to get their own profile or admin to list/get
-      allow get: if isSignedIn() && (isAdmin() || (exists(/databases/$(database)/documents/student/$(regId)) && get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email));
+      allow get: if isSignedIn() && (isAdmin() || isStudentOwner(regId));
       allow list: if isAdmin();
       allow create, update, delete: if isAdmin();
 
