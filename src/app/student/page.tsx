@@ -39,7 +39,7 @@ export default function StudentDashboard() {
 
       for (const p of list) {
         try {
-          // Fetch only latest history to determine progress and show in list
+          // Fetch history with regId normalization
           const hQuery = query(
             collection(db, "student", userData.regId, "progress", p.id, "history"),
             orderBy("timestamp", "desc"),
@@ -65,7 +65,7 @@ export default function StudentDashboard() {
             completedCount: answeredIndices.size
           };
         } catch (e) {
-          // If permission is denied for specific papers, just skip and default to 0
+          // Silently handle permission errors by defaulting to zero progress
           prog[p.id] = { completedCount: 0 };
         }
       }
