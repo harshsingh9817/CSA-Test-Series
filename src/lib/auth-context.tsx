@@ -44,7 +44,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setUser(null);
     setUserData(null);
     isSessionSynced.current = false;
-    router.push("/login");
+    if (!isSilent) router.push("/login");
   };
 
   useEffect(() => {
@@ -95,7 +95,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                   setUserData(data);
                   syncSession(firebaseUser.uid, "student", data.name, firebaseUser.email);
                 } else {
-                  setUserData(null);
+                  // Profile missing - Revoke access immediately
+                  logout(true);
                 }
                 setLoading(false);
               }, () => {
@@ -130,7 +131,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
     const sessionRef = ref(database, `userSessions/${uid}`);
     try {
-      // Automatic cleanup on disconnect - delete the record entirely
+      // Automatic cleanup on disconnect
       onDisconnect(sessionRef).remove();
 
       await set(sessionRef, {
