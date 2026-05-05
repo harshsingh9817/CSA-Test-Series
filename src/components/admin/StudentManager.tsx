@@ -6,17 +6,16 @@ import { db } from "@/lib/firebase";
 import { firebaseConfig } from "@/firebase/config";
 import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, deleteUser, signOut } from "firebase/auth";
-import { collection, setDoc, doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { collection, setDoc, doc, onSnapshot, updateDoc, deleteDoc } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, Save, X, ShieldAlert } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 
 const GATEWAY_PASS = "csa_secure_gateway_pass";
 
@@ -126,39 +125,44 @@ export default function StudentManager() {
   };
 
   const handleDelete = async (student: any) => {
-    if (!confirm(`WARNING: This will permanently delete ${student.name}'s account and profile. All progress will be lost. Continue?`)) {
+    if (!confirm(`Are you sure you want to delete ${student.name}? This document will be removed immediately.`)) {
       return;
     }
 
     setDeletingId(student.id);
-    const secondaryApp = initializeApp(firebaseConfig, "DeleteApp-" + Date.now());
-    const secondaryAuth = getAuth(secondaryApp);
 
     try {
-      // 1. Delete from Authentication List
-      try {
-        await signInWithEmailAndPassword(secondaryAuth, student.email, GATEWAY_PASS);
-        if (secondaryAuth.currentUser) {
-          await deleteUser(secondaryAuth.currentUser);
-        }
-      } catch (authErr: any) {
-        console.warn("Auth record cleanup skipped:", authErr.message);
-      } finally {
-        await deleteApp(secondaryApp);
-      }
-
-      // 2. Delete from Firestore
-      deleteDocumentNonBlocking(doc(db, "student", student.id));
+      // 1. Delete the Firestore document first (Immediate action)
+      await deleteDoc(doc(db, "student", student.id));
       
+      // 2. Background cleanup of Auth record (Non-blocking)
+      const cleanupAuth = async () => {
+        const secondaryApp = initializeApp(firebaseConfig, "DelApp-" + Date.now());
+        const secondaryAuth = getAuth(secondaryApp);
+        try {
+          await signInWithEmailAndPassword(secondaryAuth, student.email, GATEWAY_PASS);
+          if (secondaryAuth.currentUser) {
+            await deleteUser(secondaryAuth.currentUser);
+          }
+        } catch (e) {
+          console.warn("Auth cleanup background task failed:", e);
+        } finally {
+          await deleteApp(secondaryApp);
+        }
+      };
+
+      cleanupAuth();
+
       toast({ 
         title: "Student Deleted", 
-        description: "Authentication account and profile removed successfully." 
+        description: "Student profile document has been removed." 
       });
     } catch (err: any) {
+      console.error("Deletion error:", err);
       toast({ 
         variant: "destructive", 
         title: "Deletion Error", 
-        description: err.message 
+        description: "Could not delete student document. Check permissions." 
       });
     } finally {
       setDeletingId(null);
