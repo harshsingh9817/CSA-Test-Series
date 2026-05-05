@@ -5,7 +5,7 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
 import { firebaseConfig } from "@/firebase/config";
 import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, deleteUser, signOut } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { collection, setDoc, doc, onSnapshot, updateDoc, deleteDoc } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,6 +72,7 @@ export default function StudentManager() {
       return;
     }
 
+    // Create a secondary app to handle auth without logging out the admin
     const secondaryApp = initializeApp(firebaseConfig, "AddApp-" + Date.now());
     const secondaryAuth = getAuth(secondaryApp);
 
@@ -80,6 +81,7 @@ export default function StudentManager() {
         await createUserWithEmailAndPassword(secondaryAuth, studentEmail, GATEWAY_PASS);
         await signOut(secondaryAuth);
       } catch (authErr: any) {
+        // If user already exists in Auth, we just ignore it and proceed to create/update Firestore doc
         if (authErr.code !== 'auth/email-already-in-use') {
           throw authErr;
         }
@@ -98,11 +100,12 @@ export default function StudentManager() {
         email: studentEmail,
       };
 
+      // Direct document creation/overwrite
       await setDoc(doc(db, "student", cleanRegId), studentDoc);
 
       toast({ 
-        title: "Account Created", 
-        description: `Student ${cleanRegId} has been added successfully.` 
+        title: "Success", 
+        description: `Student ${cleanRegId} profile created.` 
       });
       
       setIsAddOpen(false);
@@ -111,7 +114,7 @@ export default function StudentManager() {
       console.error(err);
       toast({ 
         variant: "destructive", 
-        title: "Creation Failed", 
+        title: "Failed", 
         description: err.message 
       });
       try { await deleteApp(secondaryApp); } catch (e) {}
@@ -125,44 +128,26 @@ export default function StudentManager() {
   };
 
   const handleDelete = async (student: any) => {
-    if (!confirm(`Are you sure you want to delete ${student.name}? This document will be removed immediately.`)) {
+    if (!confirm(`Are you sure you want to delete ${student.name}?`)) {
       return;
     }
 
     setDeletingId(student.id);
 
     try {
-      // 1. Delete the Firestore document first (Immediate action)
+      // Direct Firestore document deletion
       await deleteDoc(doc(db, "student", student.id));
       
-      // 2. Background cleanup of Auth record (Non-blocking)
-      const cleanupAuth = async () => {
-        const secondaryApp = initializeApp(firebaseConfig, "DelApp-" + Date.now());
-        const secondaryAuth = getAuth(secondaryApp);
-        try {
-          await signInWithEmailAndPassword(secondaryAuth, student.email, GATEWAY_PASS);
-          if (secondaryAuth.currentUser) {
-            await deleteUser(secondaryAuth.currentUser);
-          }
-        } catch (e) {
-          console.warn("Auth cleanup background task failed:", e);
-        } finally {
-          await deleteApp(secondaryApp);
-        }
-      };
-
-      cleanupAuth();
-
       toast({ 
-        title: "Student Deleted", 
-        description: "Student profile document has been removed." 
+        title: "Deleted", 
+        description: "Student document removed successfully." 
       });
     } catch (err: any) {
       console.error("Deletion error:", err);
       toast({ 
         variant: "destructive", 
-        title: "Deletion Error", 
-        description: "Could not delete student document. Check permissions." 
+        title: "Error", 
+        description: "Failed to delete document. Check if you have admin rights." 
       });
     } finally {
       setDeletingId(null);
@@ -177,7 +162,7 @@ export default function StudentManager() {
 
   const handleSaveNewPassword = async () => {
     if (!newPasswordInput) {
-      toast({ variant: "destructive", title: "Invalid Password", description: "Password cannot be empty." });
+      toast({ variant: "destructive", title: "Invalid", description: "Password cannot be empty." });
       return;
     }
 
@@ -185,10 +170,10 @@ export default function StudentManager() {
     try {
       const studentRef = doc(db, "student", selectedStudentForPassword.id);
       await updateDoc(studentRef, { password: newPasswordInput });
-      toast({ title: "Password Updated", description: `Credentials for ${selectedStudentForPassword.name} changed.` });
+      toast({ title: "Updated", description: `Password changed for ${selectedStudentForPassword.name}.` });
       setIsPasswordDialogOpen(false);
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Update Failed", description: err.message });
+      toast({ variant: "destructive", title: "Failed", description: err.message });
     } finally {
       setUpdatingPassword(false);
     }
@@ -225,7 +210,7 @@ export default function StudentManager() {
               <DialogHeader>
                 <DialogTitle>Create Student Account</DialogTitle>
                 <DialogDescription>
-                  Registration IDs are unique. User will login with ID and Password.
+                  Enter details for the new student. Passwords are managed directly.
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddStudent} className="space-y-4 pt-4">
@@ -283,7 +268,7 @@ export default function StudentManager() {
                 {loading ? (
                   <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" /> Loading student list...</TableCell></TableRow>
                 ) : filteredStudents.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic">No students found matching your search.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic">No students found.</TableCell></TableRow>
                 ) : (
                   filteredStudents.map((student) => (
                     <TableRow key={student.id} className="hover:bg-muted/30">
@@ -335,7 +320,7 @@ export default function StudentManager() {
               <ShieldAlert className="h-5 w-5 text-primary" /> Update Login Password
             </DialogTitle>
             <DialogDescription>
-              Modify credentials for <strong>{selectedStudentForPassword?.name}</strong> immediately.
+              Modify credentials for <strong>{selectedStudentForPassword?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
