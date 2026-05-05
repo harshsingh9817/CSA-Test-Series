@@ -38,37 +38,36 @@ export default function LoginPage() {
       }
 
       if (loginEmail.endsWith("@csa.com")) {
-        // 1. Initial Authentication via Gateway
-        // We must sign in first to have permission to read the student document
+        // 1. Internal Authentication via Gateway
         try {
           await signInWithEmailAndPassword(auth, loginEmail, GATEWAY_PASS);
         } catch (authErr: any) {
-          throw new Error("Student account not found or access denied.");
+          throw new Error("Student account not active or Registration ID incorrect.");
         }
 
-        // 2. Custom Password Verification from Firestore
+        // 2. Direct Password Verification from Firestore
         const studentRef = doc(db, "student", cleanRegId);
         const studentSnap = await getDoc(studentRef);
         
         if (!studentSnap.exists()) {
           await signOut(auth);
-          throw new Error("Student profile is missing.");
+          throw new Error("Profile document not found. Contact Admin.");
         }
         
         const studentData = studentSnap.data();
         if (studentData.password !== password) {
           await signOut(auth);
-          throw new Error("Invalid credentials.");
+          throw new Error("Invalid system password.");
         }
         
-        // Success - Student is authenticated and verified
+        // Verified - Proceed to portal
         router.push("/student");
       } else {
         // Administrator Login Logic
         const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
         const user = userCredential.user;
 
-        // Admin Bootstrap for primary owner
+        // Ensure owner email is registered as an admin in Firestore
         const primaryAdminEmail = "sunilsingh8896@gmail.com";
         if (loginEmail.toLowerCase() === primaryAdminEmail.toLowerCase()) {
           const adminRef = doc(db, "admins", user.uid);
@@ -86,7 +85,7 @@ export default function LoginPage() {
         router.push("/admin");
       }
     } catch (err: any) {
-      console.error("Login failed:", err);
+      console.error("Login process error:", err);
       setErrorMessage(err.message || "Invalid credentials.");
     } finally {
       setLoading(false);
@@ -103,13 +102,13 @@ export default function LoginPage() {
             </div>
           </div>
           <CardTitle className="text-2xl font-black font-headline text-primary">CSA QUIZMASTER</CardTitle>
-          <CardDescription className="font-medium">Secure Assessment Gateway</CardDescription>
+          <CardDescription className="font-medium">Company Assessment Gateway</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {errorMessage && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Login Error</AlertTitle>
+              <AlertTitle>Access Denied</AlertTitle>
               <AlertDescription className="text-xs">{errorMessage}</AlertDescription>
             </Alert>
           )}
@@ -127,7 +126,7 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Password</Label>
+              <Label htmlFor="password" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">System Password</Label>
               <Input
                 id="password"
                 type="password"
@@ -140,16 +139,16 @@ export default function LoginPage() {
               />
             </div>
             <Button type="submit" className="w-full h-12 text-lg font-bold" disabled={loading}>
-              {loading ? <Loader2 className="animate-spin" /> : "Sign In"}
+              {loading ? <Loader2 className="animate-spin" /> : "Verify Identity"}
             </Button>
           </form>
         </CardContent>
         <CardFooter className="flex flex-col gap-3 text-center text-xs text-muted-foreground border-t pt-6">
           <div className="flex items-center justify-center gap-1.5 text-primary font-bold">
             <ShieldCheck className="h-4 w-4" />
-            <span>PROTECTED SYSTEM</span>
+            <span>PROTECTED PRIVATE SYSTEM</span>
           </div>
-          <p>Registration is managed by CSA Administrators only.</p>
+          <p>Managed exclusively by CSA Administrators.</p>
         </CardFooter>
       </Card>
       

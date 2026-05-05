@@ -18,9 +18,10 @@ service cloud.firestore {
     }
 
     match /student/{regId} {
-      // Allow gets for login verification even if not fully authenticated as student yet
+      // Allow gets for login verification
       allow get: if isSignedIn();
       allow list: if isAdmin();
+      // Administrators have full control over documents
       allow create, update, delete: if isAdmin();
 
       match /report/{reportId} {

@@ -12,10 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, ShieldAlert } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, ShieldAlert, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const GATEWAY_PASS = "csa_secure_gateway_pass";
 
@@ -78,10 +79,12 @@ export default function StudentManager() {
 
     try {
       try {
+        // Attempt to create the internal auth account
         await createUserWithEmailAndPassword(secondaryAuth, studentEmail, GATEWAY_PASS);
         await signOut(secondaryAuth);
       } catch (authErr: any) {
-        // If user already exists in Auth, we just ignore it and proceed to create/update Firestore doc
+        // If user already exists in Auth, we ignore it and proceed to create/update Firestore doc
+        // This allows reusing Registration IDs easily
         if (authErr.code !== 'auth/email-already-in-use') {
           throw authErr;
         }
@@ -100,12 +103,12 @@ export default function StudentManager() {
         email: studentEmail,
       };
 
-      // Direct document creation/overwrite
+      // Create or overwrite the profile document
       await setDoc(doc(db, "student", cleanRegId), studentDoc);
 
       toast({ 
-        title: "Success", 
-        description: `Student ${cleanRegId} profile created.` 
+        title: "Profile Created", 
+        description: `Student ${cleanRegId} has been added successfully.` 
       });
       
       setIsAddOpen(false);
@@ -114,7 +117,7 @@ export default function StudentManager() {
       console.error(err);
       toast({ 
         variant: "destructive", 
-        title: "Failed", 
+        title: "Action Failed", 
         description: err.message 
       });
       try { await deleteApp(secondaryApp); } catch (e) {}
@@ -127,27 +130,29 @@ export default function StudentManager() {
     setName(""); setCourse(""); setRegId(""); setPassword(""); setNotice("");
   };
 
-  const handleDelete = async (student: any) => {
-    if (!confirm(`Are you sure you want to delete ${student.name}?`)) {
+  const handleDelete = async (studentId: string, studentName: string) => {
+    // Direct and simple confirmation
+    if (!window.confirm(`Are you sure you want to PERMANENTLY delete the profile for ${studentName}?`)) {
       return;
     }
 
-    setDeletingId(student.id);
+    setDeletingId(studentId);
 
     try {
       // Direct Firestore document deletion
-      await deleteDoc(doc(db, "student", student.id));
+      // This is the primary way to remove a student's access in this system
+      await deleteDoc(doc(db, "student", studentId));
       
       toast({ 
-        title: "Deleted", 
-        description: "Student document removed successfully." 
+        title: "Student Deleted", 
+        description: `Profile for ${studentName} removed from directory.` 
       });
     } catch (err: any) {
       console.error("Deletion error:", err);
       toast({ 
         variant: "destructive", 
-        title: "Error", 
-        description: "Failed to delete document. Check if you have admin rights." 
+        title: "Delete Failed", 
+        description: "Could not remove document. Check permissions." 
       });
     } finally {
       setDeletingId(null);
@@ -190,7 +195,7 @@ export default function StudentManager() {
         <div className="relative w-full md:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input 
-            placeholder="Search students..." 
+            placeholder="Search directory..." 
             className="pl-10 h-11" 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -208,9 +213,9 @@ export default function StudentManager() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
-                <DialogTitle>Create Student Account</DialogTitle>
+                <DialogTitle>Register New Student</DialogTitle>
                 <DialogDescription>
-                  Enter details for the new student. Passwords are managed directly.
+                  Enter company details. Passwords are managed directly in this panel.
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleAddStudent} className="space-y-4 pt-4">
@@ -229,12 +234,12 @@ export default function StudentManager() {
                   <Input id="regId" placeholder="e.g. ST101" value={regId} onChange={(e) => setRegId(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="new-password">Login Password</Label>
+                  <Label htmlFor="new-password">System Password</Label>
                   <Input id="new-password" type="text" value={password} onChange={(e) => setPassword(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="notice">Notice</Label>
-                  <Textarea id="notice" placeholder="Administrative notes..." value={notice} onChange={(e) => setNotice(e.target.value)} />
+                  <Label htmlFor="notice">Admin Remarks</Label>
+                  <Textarea id="notice" placeholder="Optional notes..." value={notice} onChange={(e) => setNotice(e.target.value)} />
                 </div>
                 <DialogFooter className="pt-4">
                   <Button type="submit" disabled={adding} className="w-full font-bold">
@@ -249,8 +254,8 @@ export default function StudentManager() {
 
       <Card className="shadow-lg border-none">
         <CardHeader className="bg-primary/5 rounded-t-lg">
-          <CardTitle className="text-xl text-primary font-black">Student Directory</CardTitle>
-          <CardDescription>Direct management of student profiles and credentials.</CardDescription>
+          <CardTitle className="text-xl text-primary font-black">Private Directory</CardTitle>
+          <CardDescription>Direct management of student access and credentials.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -261,14 +266,14 @@ export default function StudentManager() {
                   <TableHead className="font-bold">Course</TableHead>
                   <TableHead className="font-bold">Reg ID</TableHead>
                   <TableHead className="font-bold">Password</TableHead>
-                  <TableHead className="text-right font-bold">Actions</TableHead>
+                  <TableHead className="text-right font-bold">Manage</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" /> Loading student list...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" /> Syncing data...</TableCell></TableRow>
                 ) : filteredStudents.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic">No students found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic">No student profiles found.</TableCell></TableRow>
                 ) : (
                   filteredStudents.map((student) => (
                     <TableRow key={student.id} className="hover:bg-muted/30">
@@ -287,7 +292,7 @@ export default function StudentManager() {
                             variant="outline" 
                             size="icon" 
                             className="h-9 w-9 text-primary hover:bg-primary/10 border-primary/20" 
-                            title="Update Password"
+                            title="Direct Password Update"
                             onClick={() => openPasswordDialog(student)}
                           >
                             <KeyRound className="h-4 w-4" />
@@ -297,8 +302,8 @@ export default function StudentManager() {
                             size="icon" 
                             disabled={deletingId === student.id}
                             className="h-9 w-9 text-destructive hover:bg-destructive hover:text-white border-destructive/20" 
-                            title="Delete Student"
-                            onClick={() => handleDelete(student)}
+                            title="Permanent Deletion"
+                            onClick={() => handleDelete(student.id, student.name)}
                           >
                             {deletingId === student.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                           </Button>
@@ -317,10 +322,10 @@ export default function StudentManager() {
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5 text-primary" /> Update Login Password
+              <ShieldAlert className="h-5 w-5 text-primary" /> Direct Password Update
             </DialogTitle>
             <DialogDescription>
-              Modify credentials for <strong>{selectedStudentForPassword?.name}</strong>.
+              Changing system password for <strong>{selectedStudentForPassword?.name}</strong>.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
@@ -329,7 +334,7 @@ export default function StudentManager() {
               <Input 
                 id="manual-password" 
                 type="text" 
-                placeholder="Enter new password..." 
+                placeholder="Enter new system password..." 
                 value={newPasswordInput}
                 onChange={(e) => setNewPasswordInput(e.target.value)}
                 className="h-11 font-mono"
@@ -342,7 +347,7 @@ export default function StudentManager() {
               Cancel
             </Button>
             <Button onClick={handleSaveNewPassword} disabled={updatingPassword} className="flex-1 font-bold">
-              {updatingPassword ? <Loader2 className="animate-spin" /> : "Save Changes"}
+              {updatingPassword ? <Loader2 className="animate-spin" /> : "Save Directly"}
             </Button>
           </DialogFooter>
         </DialogContent>
