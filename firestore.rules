@@ -10,20 +10,35 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
+    
+    // Helper to check if the authenticated user is the student owner of the path
+    function isStudentOwner(regId) {
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email
+      );
+    }
 
     match /student/{regId} {
-      allow get: if isSignedIn() && (resource.data.email == request.auth.token.email || isAdmin());
+      // Allow user to get their own profile or admin to list/get
+      allow get: if isSignedIn() && (isAdmin() || (exists(/databases/$(database)/documents/student/$(regId)) && get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email));
       allow list: if isAdmin();
       allow create, update, delete: if isAdmin();
 
+      // Student Reports for Admin review
+      match /report/{reportId} {
+        allow get, list: if isSignedIn() && (isStudentOwner(regId) || isAdmin());
+        allow create: if isSignedIn() && isStudentOwner(regId);
+        allow delete: if isAdmin();
+      }
+
       match /progress/{paperId} {
-        allow get, list: if isSignedIn() && (get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email || isAdmin());
-        allow create, update: if isSignedIn() && get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email;
+        allow get, list: if isSignedIn() && (isStudentOwner(regId) || isAdmin());
+        allow create, update: if isSignedIn() && isStudentOwner(regId);
         allow delete: if isAdmin();
         
         match /history/{historyId} {
-           allow get, list: if isSignedIn() && (get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email || isAdmin());
-           allow create: if isSignedIn() && get(/databases/$(database)/documents/student/$(regId)).data.email == request.auth.token.email;
+           allow get, list: if isSignedIn() && (isStudentOwner(regId) || isAdmin());
+           allow create: if isSignedIn() && isStudentOwner(regId);
         }
       }
     }
@@ -36,10 +51,8 @@ service cloud.firestore {
     }
 
     match /userSessions/{sessionId} {
-      // Users can manage their own session record
       allow get, update: if isSignedIn() && (request.auth.uid == sessionId || isAdmin());
       allow create: if isSignedIn();
-      // Admin can see everything
       allow list, delete: if isAdmin();
     }
 

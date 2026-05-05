@@ -15,6 +15,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, ChevronLeft, Trophy, Target, XCirc
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { addDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 
 export default function QuizPage({ params }: { params: Promise<{ paperId: string }> }) {
   const { paperId } = use(params);
@@ -176,28 +177,28 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
     if (!userData?.regId || attemptedCount === 0) return;
 
-    try {
-      const timestamp = Date.now();
-      await addDoc(collection(db, "student", userData.regId, "progress", paperId, "history"), {
-        score: correct,
-        totalInSession: questions.length,
-        attempted: attemptedCount,
-        answeredIndices: answeredIndices,
-        timestamp
-      });
+    // Use non-blocking updates for reliable progress saving
+    const timestamp = Date.now();
+    const historyColRef = collection(db, "student", userData.regId, "progress", paperId, "history");
+    const reportColRef = collection(db, "student", userData.regId, "report");
 
-      await addDoc(collection(db, "student", userData.regId, "report"), {
-        paperId: paperId,
-        paperName: paper?.name || "Practice Set",
-        attempted: attemptedCount,
-        correct,
-        incorrect,
-        percentage: Math.round(percentage),
-        timestamp
-      });
-    } catch (err) {
-      console.error("Failed to save progress", err);
-    }
+    addDocumentNonBlocking(historyColRef, {
+      score: correct,
+      totalInSession: questions.length,
+      attempted: attemptedCount,
+      answeredIndices: answeredIndices,
+      timestamp
+    });
+
+    addDocumentNonBlocking(reportColRef, {
+      paperId: paperId,
+      paperName: paper?.name || "Practice Set",
+      attempted: attemptedCount,
+      correct,
+      incorrect,
+      percentage: Math.round(percentage),
+      timestamp
+    });
   };
 
   if (loading) return (
