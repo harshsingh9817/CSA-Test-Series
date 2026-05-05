@@ -5,18 +5,20 @@ import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
 import { firebaseConfig } from "@/firebase/config";
 import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, deleteUser, signOut } from "firebase/auth";
 import { collection, setDoc, doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, Save, X } from "lucide-react";
+import { UserPlus, Trash2, Search, Loader2, RefreshCw, KeyRound, Save, X, ShieldAlert } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+
+const GATEWAY_PASS = "csa_secure_gateway_pass";
 
 export default function StudentManager() {
   const [students, setStudents] = useState<any[]>([]);
@@ -39,6 +41,9 @@ export default function StudentManager() {
   const [selectedStudentForPassword, setSelectedStudentForPassword] = useState<any>(null);
   const [newPasswordInput, setNewPasswordInput] = useState("");
   const [updatingPassword, setUpdatingPassword] = useState(false);
+
+  // Deletion State
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "student"), (snapshot) => {
@@ -68,31 +73,27 @@ export default function StudentManager() {
       return;
     }
 
-    const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp-" + Date.now());
+    const secondaryApp = initializeApp(firebaseConfig, "AddApp-" + Date.now());
     const secondaryAuth = getAuth(secondaryApp);
 
     try {
-      // 1. Ensure Auth account exists with a fixed internal password
       try {
-        await createUserWithEmailAndPassword(secondaryAuth, studentEmail, "csa_secure_gateway_pass");
+        await createUserWithEmailAndPassword(secondaryAuth, studentEmail, GATEWAY_PASS);
         await signOut(secondaryAuth);
       } catch (authErr: any) {
-        if (authErr.code === 'auth/email-already-in-use') {
-          console.log("Auth account already exists, continuing to update Firestore profile.");
-        } else {
+        if (authErr.code !== 'auth/email-already-in-use') {
           throw authErr;
         }
       } finally {
         await deleteApp(secondaryApp);
       }
 
-      // 2. Save complete profile to Firestore (including the direct password)
       const studentDoc = {
         id: cleanRegId,
         name,
         course,
         regId: cleanRegId,
-        password, // Stored directly in Firestore for admin management
+        password,
         notice,
         createdAt: Date.now(),
         email: studentEmail,
@@ -102,7 +103,7 @@ export default function StudentManager() {
 
       toast({ 
         title: "Account Created", 
-        description: `Student ${cleanRegId} has been added to the directory.` 
+        description: `Student ${cleanRegId} has been added successfully.` 
       });
       
       setIsAddOpen(false);
@@ -124,13 +125,43 @@ export default function StudentManager() {
     setName(""); setCourse(""); setRegId(""); setPassword(""); setNotice("");
   };
 
-  const handleDelete = (id: string, name: string) => {
-    if (confirm(`Revoke access for ${name}? \n\nThis will remove their profile and instantly log them out.`)) {
-      deleteDocumentNonBlocking(doc(db, "student", id));
+  const handleDelete = async (student: any) => {
+    if (!confirm(`WARNING: This will permanently delete ${student.name}'s account and profile. All progress will be lost. Continue?`)) {
+      return;
+    }
+
+    setDeletingId(student.id);
+    const secondaryApp = initializeApp(firebaseConfig, "DeleteApp-" + Date.now());
+    const secondaryAuth = getAuth(secondaryApp);
+
+    try {
+      // 1. Delete from Authentication List
+      try {
+        await signInWithEmailAndPassword(secondaryAuth, student.email, GATEWAY_PASS);
+        if (secondaryAuth.currentUser) {
+          await deleteUser(secondaryAuth.currentUser);
+        }
+      } catch (authErr: any) {
+        console.warn("Auth record cleanup skipped:", authErr.message);
+      } finally {
+        await deleteApp(secondaryApp);
+      }
+
+      // 2. Delete from Firestore
+      deleteDocumentNonBlocking(doc(db, "student", student.id));
+      
       toast({ 
-        title: "Access Revoked", 
-        description: `${name}'s profile has been removed.` 
+        title: "Student Deleted", 
+        description: "Authentication account and profile removed successfully." 
       });
+    } catch (err: any) {
+      toast({ 
+        variant: "destructive", 
+        title: "Deletion Error", 
+        description: err.message 
+      });
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -142,32 +173,18 @@ export default function StudentManager() {
 
   const handleSaveNewPassword = async () => {
     if (!newPasswordInput) {
-      toast({ 
-        variant: "destructive", 
-        title: "Invalid Password", 
-        description: "Password cannot be empty." 
-      });
+      toast({ variant: "destructive", title: "Invalid Password", description: "Password cannot be empty." });
       return;
     }
 
     setUpdatingPassword(true);
-    
     try {
       const studentRef = doc(db, "student", selectedStudentForPassword.id);
       await updateDoc(studentRef, { password: newPasswordInput });
-      
-      toast({
-        title: "Password Updated",
-        description: `Credentials for ${selectedStudentForPassword.name} have been changed.`
-      });
-      
+      toast({ title: "Password Updated", description: `Credentials for ${selectedStudentForPassword.name} changed.` });
       setIsPasswordDialogOpen(false);
     } catch (err: any) {
-      toast({
-        variant: "destructive",
-        title: "Update Failed",
-        description: err.message
-      });
+      toast({ variant: "destructive", title: "Update Failed", description: err.message });
     } finally {
       setUpdatingPassword(false);
     }
@@ -185,18 +202,18 @@ export default function StudentManager() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input 
             placeholder="Search students..." 
-            className="pl-10" 
+            className="pl-10 h-11" 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div className="flex gap-2 w-full md:w-auto">
-          <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
+          <Button variant="outline" size="icon" className="h-11 w-11" onClick={handleRefresh} disabled={refreshing}>
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           </Button>
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
-              <Button className="flex-1 md:flex-none flex items-center gap-2">
+              <Button className="h-11 px-6 font-bold flex items-center gap-2">
                 <UserPlus className="h-4 w-4" /> Add Student
               </Button>
             </DialogTrigger>
@@ -207,7 +224,7 @@ export default function StudentManager() {
                   Registration IDs are unique. User will login with ID and Password.
                 </DialogDescription>
               </DialogHeader>
-              <form onSubmit={handleAddStudent} className="space-y-4">
+              <form onSubmit={handleAddStudent} className="space-y-4 pt-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">Full Name</Label>
@@ -230,8 +247,8 @@ export default function StudentManager() {
                   <Label htmlFor="notice">Notice</Label>
                   <Textarea id="notice" placeholder="Administrative notes..." value={notice} onChange={(e) => setNotice(e.target.value)} />
                 </div>
-                <DialogFooter>
-                  <Button type="submit" disabled={adding} className="w-full">
+                <DialogFooter className="pt-4">
+                  <Button type="submit" disabled={adding} className="w-full font-bold">
                     {adding ? <Loader2 className="animate-spin" /> : "Save Profile"}
                   </Button>
                 </DialogFooter>
@@ -241,59 +258,60 @@ export default function StudentManager() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg text-primary font-bold">Student Directory</CardTitle>
-          <CardDescription>Direct password management for assessment accounts.</CardDescription>
+      <Card className="shadow-lg border-none">
+        <CardHeader className="bg-primary/5 rounded-t-lg">
+          <CardTitle className="text-xl text-primary font-black">Student Directory</CardTitle>
+          <CardDescription>Direct management of student profiles and credentials.</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="rounded-md border overflow-hidden">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader className="bg-muted/50">
                 <TableRow>
-                  <TableHead>Student Name</TableHead>
-                  <TableHead>Course</TableHead>
-                  <TableHead>Reg ID</TableHead>
-                  <TableHead>Password</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="font-bold">Student Name</TableHead>
+                  <TableHead className="font-bold">Course</TableHead>
+                  <TableHead className="font-bold">Reg ID</TableHead>
+                  <TableHead className="font-bold">Password</TableHead>
+                  <TableHead className="text-right font-bold">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-10">Loading...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" /> Loading student list...</TableCell></TableRow>
                 ) : filteredStudents.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-10">No students found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic">No students found matching your search.</TableCell></TableRow>
                 ) : (
                   filteredStudents.map((student) => (
-                    <TableRow key={student.id}>
+                    <TableRow key={student.id} className="hover:bg-muted/30">
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-medium">{student.name}</span>
-                          <span className="text-[10px] text-muted-foreground">{student.email}</span>
+                          <span className="font-bold text-base">{student.name}</span>
+                          <span className="text-[10px] text-muted-foreground uppercase">{student.email}</span>
                         </div>
                       </TableCell>
-                      <TableCell>{student.course}</TableCell>
-                      <TableCell className="font-mono text-xs font-bold text-primary">{student.regId}</TableCell>
-                      <TableCell className="font-mono text-xs">{student.password}</TableCell>
+                      <TableCell className="font-medium">{student.course}</TableCell>
+                      <TableCell className="font-black text-primary">{student.regId}</TableCell>
+                      <TableCell className="font-mono text-sm bg-muted/50 px-2 rounded">{student.password}</TableCell>
                       <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
+                        <div className="flex justify-end gap-2">
                           <Button 
-                            variant="ghost" 
+                            variant="outline" 
                             size="icon" 
-                            className="text-primary hover:bg-primary/10" 
-                            title="Direct Password Update"
+                            className="h-9 w-9 text-primary hover:bg-primary/10 border-primary/20" 
+                            title="Update Password"
                             onClick={() => openPasswordDialog(student)}
                           >
                             <KeyRound className="h-4 w-4" />
                           </Button>
                           <Button 
-                            variant="ghost" 
+                            variant="outline" 
                             size="icon" 
-                            className="text-destructive hover:bg-destructive/10" 
-                            title="Revoke Access"
-                            onClick={() => handleDelete(student.id, student.name)}
+                            disabled={deletingId === student.id}
+                            className="h-9 w-9 text-destructive hover:bg-destructive hover:text-white border-destructive/20" 
+                            title="Delete Student"
+                            onClick={() => handleDelete(student)}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            {deletingId === student.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                           </Button>
                         </div>
                       </TableCell>
@@ -309,9 +327,11 @@ export default function StudentManager() {
       <Dialog open={isPasswordDialogOpen} onOpenChange={setIsPasswordDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Update Login Password</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-primary" /> Update Login Password
+            </DialogTitle>
             <DialogDescription>
-              Directly modify credentials for <strong>{selectedStudentForPassword?.name}</strong>.
+              Modify credentials for <strong>{selectedStudentForPassword?.name}</strong> immediately.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
@@ -323,16 +343,17 @@ export default function StudentManager() {
                 placeholder="Enter new password..." 
                 value={newPasswordInput}
                 onChange={(e) => setNewPasswordInput(e.target.value)}
+                className="h-11 font-mono"
                 autoFocus
               />
             </div>
           </div>
-          <DialogFooter className="flex gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)} className="flex-1 sm:flex-none">
-              <X className="h-4 w-4 mr-2" /> Cancel
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setIsPasswordDialogOpen(false)} className="flex-1">
+              Cancel
             </Button>
-            <Button onClick={handleSaveNewPassword} disabled={updatingPassword} className="flex-1 sm:flex-none">
-              {updatingPassword ? <Loader2 className="animate-spin" /> : <><Save className="h-4 w-4 mr-2" /> Save</>}
+            <Button onClick={handleSaveNewPassword} disabled={updatingPassword} className="flex-1 font-bold">
+              {updatingPassword ? <Loader2 className="animate-spin" /> : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

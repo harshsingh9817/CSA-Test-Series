@@ -18,8 +18,8 @@ service cloud.firestore {
     }
 
     match /student/{regId} {
-      // Allow students to read their own profile to verify their custom password during login
-      allow get: if isSignedIn() && (isAdmin() || isStudentOwner(regId));
+      // Allow gets for login verification even if not fully authenticated as student yet
+      allow get: if isSignedIn();
       allow list: if isAdmin();
       allow create, update, delete: if isAdmin();
 
