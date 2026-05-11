@@ -4,7 +4,7 @@
 import React, { useState, useEffect, use } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, collection, addDoc, getDocs } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -76,11 +76,17 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           return {
             originalIndex,
             topic: q.topic || "General",
-            question: isBilingual ? q.question_en : (q.question || q.question_hi || "Question text missing"),
-            optA: isBilingual ? (q.options?.A?.en || q.options?.A?.hi || "") : (q.optionA || q.option1 || q.opt1 || ""),
-            optB: isBilingual ? (q.options?.B?.en || q.options?.B?.hi || "") : (q.optionB || q.option2 || q.opt2 || ""),
-            optC: isBilingual ? (q.options?.C?.en || q.options?.C?.hi || "") : (q.optionC || q.option3 || q.opt3 || ""),
-            optD: isBilingual ? (q.options?.D?.en || q.options?.D?.hi || "") : (q.optionD || q.option4 || q.opt4 || ""),
+            isBilingual,
+            question_en: isBilingual ? q.question_en : (q.question || q.question_en || q.question_hi || ""),
+            question_hi: q.question_hi || "",
+            optA_en: isBilingual ? (q.options?.A?.en || q.options?.A?.hi || "") : (q.optionA || q.option1 || q.opt1 || ""),
+            optA_hi: isBilingual ? (q.options?.A?.hi || "") : "",
+            optB_en: isBilingual ? (q.options?.B?.en || q.options?.B?.hi || "") : (q.optionB || q.option2 || q.opt2 || ""),
+            optB_hi: isBilingual ? (q.options?.B?.hi || "") : "",
+            optC_en: isBilingual ? (q.options?.C?.en || q.options?.C?.hi || "") : (q.optionC || q.option3 || q.opt3 || ""),
+            optC_hi: isBilingual ? (q.options?.C?.hi || "") : "",
+            optD_en: isBilingual ? (q.options?.D?.en || q.options?.D?.hi || "") : (q.optionD || q.option4 || q.opt4 || ""),
+            optD_hi: isBilingual ? (q.options?.D?.hi || "") : "",
             correctAnswer: isBilingual ? q.correct_option : (q.answer === "1" ? "A" : q.answer === "2" ? "B" : q.answer === "3" ? "C" : q.answer === "4" ? "D" : q.answer)
           };
         });
@@ -101,22 +107,16 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
         const selectedQuestions: any[] = [];
         const MAX_SESSION_SIZE = 100;
 
-        // Implement weighted proportional selection
+        // Proportional selection
         const topicList = Object.keys(topicGroups);
-        const totalPoolSize = pool.length;
-        
-        // Calculate dynamic quota per topic (bias towards smaller topics to ensure variety)
         topicList.forEach(topic => {
           const topicPool = topicGroups[topic];
-          // Proportional share based on sqrt to boost smaller topics in the mix
           let quota = Math.ceil((Math.sqrt(topicPool.length) / topicList.reduce((acc, t) => acc + Math.sqrt(topicGroups[t].length), 0)) * MAX_SESSION_SIZE);
-          
           quota = Math.min(quota, topicPool.length);
           const shuffledGroup = [...topicPool].sort(() => Math.random() - 0.5);
           selectedQuestions.push(...shuffledGroup.slice(0, quota));
         });
 
-        // Final shuffle and trim to exactly 100 (or less if pool is small)
         const finalSession = selectedQuestions
           .sort(() => Math.random() - 0.5)
           .slice(0, MAX_SESSION_SIZE);
@@ -162,7 +162,10 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
           wrongQuestions.push({
             ...q,
             userChoice,
-            userChoiceText: q[`opt${userChoice}`]
+            userChoiceText_en: q[`opt${userChoice}_en`],
+            userChoiceText_hi: q[`opt${userChoice}_hi`],
+            correctAnswerText_en: q[`opt${q.correctAnswer}_en`],
+            correctAnswerText_hi: q[`opt${q.correctAnswer}_hi`]
           });
         }
       }
@@ -184,7 +187,6 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
 
     if (!userData?.regId || attemptedCount === 0) return;
 
-    // Save progress and report
     const timestamp = Date.now();
     const historyColRef = collection(db, "student", userData.regId, "progress", paperId, "history");
     const reportColRef = collection(db, "student", userData.regId, "report");
@@ -265,17 +267,22 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
                     <Card key={i} className="border-l-4 border-l-red-500">
                       <CardContent className="p-4 space-y-3">
                         <div className="flex justify-between items-start gap-2">
-                          <p className="font-bold text-sm">Q: {q.question}</p>
+                          <div className="space-y-1">
+                            <p className="font-bold text-sm">Q: {q.question_en}</p>
+                            {q.question_hi && <p className="text-sm text-muted-foreground">{q.question_hi}</p>}
+                          </div>
                           <Badge variant="outline" className="text-[10px] shrink-0">{q.topic}</Badge>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="p-2 rounded bg-red-50 border border-red-100">
                             <p className="text-[10px] font-bold text-red-600 uppercase">Your Answer ({q.userChoice})</p>
-                            <p className="text-sm">{q[`opt${q.userChoice}`]}</p>
+                            <p className="text-sm">{q.userChoiceText_en}</p>
+                            {q.userChoiceText_hi && <p className="text-xs text-muted-foreground italic">{q.userChoiceText_hi}</p>}
                           </div>
                           <div className="p-2 rounded bg-green-50 border border-green-100">
                             <p className="text-[10px] font-bold text-green-600 uppercase">Correct Answer ({q.correctAnswer})</p>
-                            <p className="text-sm">{q[`opt${q.correctAnswer}`]}</p>
+                            <p className="text-sm">{q.correctAnswerText_en}</p>
+                            {q.correctAnswerText_hi && <p className="text-xs text-muted-foreground italic">{q.correctAnswerText_hi}</p>}
                           </div>
                         </div>
                       </CardContent>
@@ -356,8 +363,13 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               <Badge variant="secondary">Question {currentIndex + 1} of {questions.length}</Badge>
               <Badge variant="outline" className="text-[10px] uppercase font-bold">{currentQ?.topic}</Badge>
             </div>
-            <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed">
-              {currentQ?.question}
+            <CardTitle className="text-xl md:text-2xl font-medium leading-relaxed flex flex-col gap-3">
+              <span className="text-foreground">{currentQ?.question_en}</span>
+              {currentQ?.question_hi && (
+                <span className="text-muted-foreground text-lg md:text-xl font-hindi border-t pt-2 border-dashed">
+                  {currentQ?.question_hi}
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-8 pb-12">
@@ -367,10 +379,10 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
               className="grid grid-cols-1 gap-4"
             >
               {[
-                { id: "A", label: currentQ?.optA },
-                { id: "B", label: currentQ?.optB },
-                { id: "C", label: currentQ?.optC },
-                { id: "D", label: currentQ?.optD },
+                { id: "A", en: currentQ?.optA_en, hi: currentQ?.optA_hi },
+                { id: "B", en: currentQ?.optB_en, hi: currentQ?.optB_hi },
+                { id: "C", en: currentQ?.optC_en, hi: currentQ?.optC_hi },
+                { id: "D", en: currentQ?.optD_en, hi: currentQ?.optD_hi },
               ].map((opt) => (
                 <div 
                   key={opt.id} 
@@ -381,8 +393,9 @@ export default function QuizPage({ params }: { params: Promise<{ paperId: string
                   <div className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold shrink-0 ${answers[currentIndex] === opt.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
                     {opt.id}
                   </div>
-                  <Label htmlFor={`opt-${opt.id}`} className="flex-1 cursor-pointer font-medium text-base">
-                    {opt.label}
+                  <Label htmlFor={`opt-${opt.id}`} className="flex-1 cursor-pointer font-medium text-base flex flex-col gap-1">
+                    <span className="text-foreground">{opt.en}</span>
+                    {opt.hi && <span className="text-muted-foreground text-sm italic">{opt.hi}</span>}
                   </Label>
                 </div>
               ))}
