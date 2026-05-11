@@ -75,22 +75,27 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "UserSession",
       "type": "object",
-      "description": "Tracks active login sessions.",
+      "description": "Tracks active login sessions in Realtime Database.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier (Auth UID)."
+          "description": "User ID (regId or 'admin')."
         },
-        "userId": {
+        "sessionId": {
           "type": "string",
-          "description": "Auth UID."
-        },
-        "userType": {
-          "type": "string",
-          "description": "admin or student"
+          "description": "Unique session identifier generated at login."
         },
         "isActive": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether the session is currently valid."
+        },
+        "lastActive": {
+          "type": "number",
+          "description": "Timestamp of last activity."
+        },
+        "deviceInfo": {
+          "type": "string",
+          "description": "User agent or device details."
         }
       }
     },
@@ -149,7 +154,7 @@
         "path": "/userSessions/{sessionId}",
         "definition": {
           "entityName": "UserSession",
-          "description": "Tracks active sessions."
+          "description": "Tracks active sessions in Realtime Database."
         }
       },
       {
