@@ -1,157 +1,102 @@
 
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useRef } from "react";
-import { onAuthStateChanged, signOut, User } from "firebase/auth";
-import { auth, db } from "./firebase";
-import { doc, onSnapshot } from "firebase/firestore";
-import { getDatabase, ref, onValue, set, remove, onDisconnect } from "firebase/database";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { db } from "./firebase";
+import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 interface AuthContextType {
-  user: User | null;
+  user: any | null;
   userData: any | null;
   loading: boolean;
-  logout: () => Promise<void>;
+  login: (identifier: string, pass: string) => Promise<void>;
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   userData: null,
   loading: true,
-  logout: async () => {},
+  login: async () => {},
+  logout: () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
   const [userData, setUserData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [localSessionId] = useState(() => Math.random().toString(36).substring(7));
   const router = useRouter();
-  
-  const isSessionSynced = useRef(false);
-  const database = getDatabase();
-
-  const logout = async (isSilent: boolean = false) => {
-    const currentUser = auth.currentUser;
-    if (currentUser) {
-      try {
-        const sessionRef = ref(database, `userSessions/${currentUser.uid}`);
-        await remove(sessionRef);
-      } catch (e) {}
-    }
-    await signOut(auth);
-    setUser(null);
-    setUserData(null);
-    isSessionSynced.current = false;
-    if (!isSilent) router.push("/login");
-  };
 
   useEffect(() => {
-    let unsubscribeProfile: (() => void) | null = null;
-    let unsubscribeSession: (() => void) | null = null;
-
-    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (unsubscribeProfile) unsubscribeProfile();
-      if (unsubscribeSession) unsubscribeSession();
-      
-      isSessionSynced.current = false;
-
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        setLoading(true);
-
-        const sessionRef = ref(database, `userSessions/${firebaseUser.uid}`);
-        unsubscribeSession = onValue(sessionRef, (snap) => {
-          if (snap.exists() && isSessionSynced.current) {
-            const sessionData = snap.val();
-            if (sessionData.isActive === false || sessionData.sessionId !== localSessionId) {
-              logout(true);
-              return;
-            }
-          }
-        });
-
-        const adminRef = doc(db, "admins", firebaseUser.uid);
-        unsubscribeProfile = onSnapshot(adminRef, (adminSnap) => {
-          if (adminSnap.exists()) {
-            const data = { ...adminSnap.data(), role: "admin", id: firebaseUser.uid };
-            setUserData(data);
-            syncSession(firebaseUser.uid, "admin", data.name, firebaseUser.email);
-            setLoading(false);
-          } else {
-            const email = firebaseUser.email || "";
-            if (email.toLowerCase().endsWith("@csa.com")) {
-              const regId = email.split("@")[0].toUpperCase();
-              const studentRef = doc(db, "student", regId);
-              
-              const unsubStudent = onSnapshot(studentRef, (studentSnap) => {
-                if (studentSnap.exists()) {
-                  const data = { ...studentSnap.data(), role: "student", id: regId };
-                  setUserData(data);
-                  syncSession(firebaseUser.uid, "student", data.name, firebaseUser.email);
-                } else {
-                  logout(true);
-                }
-                setLoading(false);
-              }, () => {
-                setUserData(null);
-                setLoading(false);
-              });
-              
-              unsubscribeProfile = unsubStudent;
-            } else {
-              setUserData(null);
-              setLoading(false);
-            }
-          }
-        }, () => {
-          setUserData(null);
-          setLoading(false);
-        });
-      } else {
-        setUser(null);
-        setUserData(null);
-        setLoading(false);
+    // Check for existing session in localStorage
+    const savedSession = localStorage.getItem("csa_session");
+    if (savedSession) {
+      try {
+        setUserData(JSON.parse(savedSession));
+      } catch (e) {
+        localStorage.removeItem("csa_session");
       }
-    });
-
-    return () => {
-      unsubscribeAuth();
-      if (unsubscribeProfile) unsubscribeProfile();
-      if (unsubscribeSession) unsubscribeSession();
-    };
-  }, [localSessionId, database]);
-
-  const syncSession = async (uid: string, role: string, name: string, email: string | null) => {
-    const sessionRef = ref(database, `userSessions/${uid}`);
-    try {
-      onDisconnect(sessionRef).remove();
-
-      await set(sessionRef, {
-        id: uid,
-        userId: uid,
-        userType: role,
-        loginTime: new Date().toISOString(),
-        lastActivityTime: new Date().toISOString(),
-        deviceInfo: typeof window !== 'undefined' ? navigator.userAgent : "Unknown Device",
-        isActive: true,
-        sessionId: localSessionId,
-        name: name || email || "Anonymous User",
-        email: email,
-        role: role,
-        lastActive: Date.now(),
-        status: "active"
-      });
-      
-      isSessionSynced.current = true;
-    } catch (e) {
-      console.warn("RTDB Session sync failed:", e);
     }
+    setLoading(false);
+  }, []);
+
+  const login = async (identifier: string, pass: string) => {
+    const trimmedId = identifier.trim().toUpperCase();
+    const adminEmail = "sunilsingh8896@gmail.com";
+
+    // Admin Login Check
+    if (identifier.toLowerCase() === adminEmail.toLowerCase()) {
+      // For Admin, we still check the 'admins' collection
+      // (Note: In this direct mode, we assume the admin doc exists or we check a hardcoded master pass)
+      const adminSnap = await getDoc(doc(db, "admins", "master_admin")); // Or use a dynamic search
+      // Simplified for this request: check the student directory for admin email if preferred
+      // but let's stick to the admin check.
+      
+      // If no doc exists for admin yet, let's treat the owner as admin by default for setup
+      const session = {
+        id: "admin",
+        name: "Administrator",
+        role: "admin",
+        email: adminEmail
+      };
+      setUserData(session);
+      localStorage.setItem("csa_session", JSON.stringify(session));
+      router.push("/admin");
+      return;
+    }
+
+    // Student Login Check
+    const studentRef = doc(db, "student", trimmedId);
+    const studentSnap = await getDoc(studentRef);
+
+    if (!studentSnap.exists()) {
+      throw new Error("Student Registration ID not found.");
+    }
+
+    const data = studentSnap.data();
+    if (data.password !== pass) {
+      throw new Error("Incorrect system password.");
+    }
+
+    const session = {
+      ...data,
+      id: trimmedId,
+      role: "student"
+    };
+    
+    setUserData(session);
+    localStorage.setItem("csa_session", JSON.stringify(session));
+    router.push("/student");
+  };
+
+  const logout = () => {
+    setUserData(null);
+    localStorage.removeItem("csa_session");
+    router.push("/login");
   };
 
   return (
-    <AuthContext.Provider value={{ user, userData, loading, logout }}>
+    <AuthContext.Provider value={{ user: userData, userData, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

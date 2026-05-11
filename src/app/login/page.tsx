@@ -2,10 +2,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,15 +10,13 @@ import { Label } from "@/components/ui/label";
 import { GraduationCap, ShieldCheck, AlertCircle, Loader2, Code2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-const GATEWAY_PASS = "csa_secure_gateway_pass";
-
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
-  const router = useRouter();
+  const { login } = useAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,66 +24,10 @@ export default function LoginPage() {
     setErrorMessage(null);
 
     try {
-      const trimmedId = identifier.trim();
-      const isRegId = !trimmedId.includes("@");
-      const cleanRegId = isRegId ? trimmedId.toUpperCase() : trimmedId.split("@")[0].toUpperCase();
-      let loginEmail = isRegId ? `${cleanRegId.toLowerCase()}@csa.com` : trimmedId.toLowerCase();
-      
-      if (loginEmail.endsWith("@csa.com")) {
-        // 1. Internal Authentication via Gateway
-        try {
-          await signInWithEmailAndPassword(auth, loginEmail, GATEWAY_PASS);
-        } catch (authErr: any) {
-          throw new Error("Student account not active or Registration ID incorrect.");
-        }
-
-        // 2. Direct Password Verification from Firestore
-        // Add a small retry for eventual consistency
-        let studentSnap;
-        for (let i = 0; i < 3; i++) {
-          const studentRef = doc(db, "student", cleanRegId);
-          studentSnap = await getDoc(studentRef);
-          if (studentSnap.exists()) break;
-          await new Promise(r => setTimeout(r, 500));
-        }
-        
-        if (!studentSnap || !studentSnap.exists()) {
-          await signOut(auth);
-          throw new Error("Profile document not found. Contact Admin.");
-        }
-        
-        const studentData = studentSnap.data();
-        if (studentData.password !== password) {
-          await signOut(auth);
-          throw new Error("Invalid system password.");
-        }
-        
-        router.push("/student");
-      } else {
-        // Administrator Login Logic
-        const userCredential = await signInWithEmailAndPassword(auth, loginEmail, password);
-        const user = userCredential.user;
-
-        const primaryAdminEmail = "sunilsingh8896@gmail.com";
-        if (loginEmail.toLowerCase() === primaryAdminEmail.toLowerCase()) {
-          const adminRef = doc(db, "admins", user.uid);
-          const adminSnap = await getDoc(adminRef);
-          if (!adminSnap.exists()) {
-            await setDoc(adminRef, {
-              id: user.uid,
-              email: loginEmail.toLowerCase(),
-              name: "Sunil Singh",
-              role: "admin",
-              createdAt: Date.now()
-            });
-          }
-        }
-        router.push("/admin");
-      }
+      await login(identifier, password);
     } catch (err: any) {
       console.error("Login process error:", err);
       setErrorMessage(err.message || "Invalid credentials.");
-      if (auth.currentUser) await signOut(auth);
     } finally {
       setLoading(false);
     }
@@ -116,7 +55,7 @@ export default function LoginPage() {
           )}
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="identifier" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reg ID / Email</Label>
+              <Label htmlFor="identifier" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Reg ID / Admin Email</Label>
               <Input
                 id="identifier"
                 placeholder="e.g. ST101"

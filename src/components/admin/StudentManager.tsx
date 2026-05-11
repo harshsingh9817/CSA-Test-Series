@@ -3,9 +3,6 @@
 
 import React, { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { firebaseConfig } from "@/firebase/config";
-import { initializeApp, deleteApp } from "firebase/app";
-import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { collection, setDoc, doc, onSnapshot, updateDoc, deleteDoc } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,8 +14,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
-
-const GATEWAY_PASS = "csa_secure_gateway_pass";
 
 export default function StudentManager() {
   const [students, setStudents] = useState<any[]>([]);
@@ -69,7 +64,6 @@ export default function StudentManager() {
     setAdding(true);
 
     const cleanRegId = regId.trim().toUpperCase();
-    const studentEmail = `${cleanRegId.toLowerCase()}@csa.com`;
 
     if (!cleanRegId) {
       toast({ variant: "destructive", title: "Error", description: "Registration ID is required." });
@@ -77,20 +71,7 @@ export default function StudentManager() {
       return;
     }
 
-    // Use a secondary app to create/check the Auth account
-    const secondaryApp = initializeApp(firebaseConfig, "TempApp-" + Date.now());
-    const secondaryAuth = getAuth(secondaryApp);
-
     try {
-      try {
-        await createUserWithEmailAndPassword(secondaryAuth, studentEmail, GATEWAY_PASS);
-        await signOut(secondaryAuth);
-      } catch (authErr: any) {
-        if (authErr.code !== 'auth/email-already-in-use') {
-          throw authErr;
-        }
-      }
-
       const studentDoc = {
         id: cleanRegId,
         name,
@@ -99,9 +80,10 @@ export default function StudentManager() {
         password,
         notice,
         createdAt: Date.now(),
-        email: studentEmail,
+        email: `${cleanRegId.toLowerCase()}@csa.com`,
       };
 
+      // Direct Firestore operation - no Firebase Auth involvement
       await setDoc(doc(db, "student", cleanRegId), studentDoc);
 
       toast({ 
@@ -115,7 +97,6 @@ export default function StudentManager() {
       console.error(err);
       toast({ variant: "destructive", title: "Add Failed", description: err.message });
     } finally {
-      try { await deleteApp(secondaryApp); } catch (e) {}
       setAdding(false);
     }
   };
@@ -134,6 +115,7 @@ export default function StudentManager() {
 
     setDeletingId(studentToDelete.id);
     try {
+      // Direct Firestore deletion
       await deleteDoc(doc(db, "student", studentToDelete.id));
       toast({ title: "Deleted", description: `Student ${studentToDelete.id} removed successfully.` });
     } catch (err: any) {
